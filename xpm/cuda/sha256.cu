@@ -281,10 +281,15 @@ __device__ void sha256(const uint32_t *msg, uint32_t *s)
 
 __device__ void sha256UsePrecalc(const uint32_t *msg,
                                  uint32_t *s,
-                                 const uint32_t *WData, int WSize,
-                                 const uint32_t *new1Data, int new1Size,
-                                 const uint32_t *new2Data, int new2Size,
-                                 const uint32_t *temp2Data, int tmp2Size)
+                                 uint32_t W0,
+                                 uint32_t W1,
+                                 uint32_t new1_0,
+                                 uint32_t new1_1,
+                                 uint32_t new1_2,
+                                 uint32_t new2_0,
+                                 uint32_t new2_1,
+                                 uint32_t new2_2,
+                                 uint32_t temp2_3)
 {
 #define ROUND(num) {\
   const uint32_t temp1 = h + ZR26(e) + Ch(e, f, g) + k[num] + w[num];\
@@ -292,17 +297,25 @@ __device__ void sha256UsePrecalc(const uint32_t *msg,
   h = g;\
   g = f;\
   f = e;\
-  if (num < new2Size)\
-    e = new2Data[num];\
+  if (num == 0)\
+    e = new2_0;\
+  else if (num == 1)\
+    e = new2_1;\
+  else if (num == 2)\
+    e = new2_2;\
   else\
     e = d + temp1;\
   d = c;\
   c = b;\
   b = a;\
-  if (num < new1Size)\
-    a = new1Data[num];\
-  else if (num < tmp2Size)\
-    a = temp1 + temp2Data[num];\
+  if (num == 0)\
+    a = new1_0;\
+  else if (num == 1)\
+    a = new1_1;\
+  else if (num == 2)\
+    a = new1_2;\
+  else if (num == 3)\
+    a = temp1 + temp2_3;\
   else\
     a = temp1 + temp2;\
   }
@@ -312,9 +325,12 @@ __device__ void sha256UsePrecalc(const uint32_t *msg,
 #pragma unroll  
   for(int i = 0; i < 16; ++i)
     w[i] = msg[i];
+
+  w[16] = W0;
+  w[17] = W1;
   
 #pragma unroll  
-  for(int i = 16; i < 64; ++i){
+  for(int i = 18; i < 64; ++i){
     
     const uint32_t s0 = ZR25(w[i-15]);
     const uint32_t s1 = ZR15(w[i-2]);
@@ -452,12 +468,17 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
   for(int i = 0; i < 8; ++i)
     state[i] = midstate[i];
   
-  uint32_t W[2] = {W0, W1};
-  uint32_t new1[3] = {new1_0, new1_1, new1_2};
-  uint32_t new2[3] = {new2_0, new2_1, new2_2};
-  uint32_t temp2[4] = {0, 0, 0, temp2_3};  
-  
-  sha256UsePrecalc(msg, state, W, 2, new1, 3, new2, 3, temp2, 4);
+  sha256UsePrecalc(msg,
+                   state,
+                   W0,
+                   W1,
+                   new1_0,
+                   new1_1,
+                   new1_2,
+                   new2_0,
+                   new2_1,
+                   new2_2,
+                   temp2_3);
   
   #pragma unroll  
   for(int i = 0; i < 8; ++i)
@@ -474,8 +495,7 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
     state[i] = sha2_pack(state[i]);
   
   if (state[7] & (1u << 31)) {
-    uint32_t count = !(state[0] & 0x1);
-    uint32_t primorialBitField = count;
+    uint32_t primorialBitField = !(state[0] & 0x1);
     state[8] = 0;
     
     {
@@ -484,7 +504,6 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       for (unsigned i = 0; i < 5; i++) {
         unsigned isDivisor = check24(acc, divisors24one[i], multipliers32one[i], offsets32one[i]);
         primorialBitField |= (isDivisor << indexesOne[i]);
-        count += isDivisor;
       }
     }
     
