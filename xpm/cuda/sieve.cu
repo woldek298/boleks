@@ -68,10 +68,10 @@ __global__ void sieve(uint32_t *gsieve_all,
       uint32_t *s3 = &sieve[vpos.z >> 5];
       uint32_t *s4 = &sieve[vpos.w >> 5];
       uint32_t *se = &sieve[SIZE];
-      uint32_t bit1 = orb << (vpos.x % 32);
-      uint32_t bit2 = orb << (vpos.y % 32);
-      uint32_t bit3 = orb << (vpos.z % 32);
-      uint32_t bit4 = orb << (vpos.w % 32);
+      uint32_t bit1 = orb << (vpos.x & 31);
+      uint32_t bit2 = orb << (vpos.y & 31);
+      uint32_t bit3 = orb << (vpos.z & 31);
+      uint32_t bit4 = orb << (vpos.w & 31);
       const uint32_t add = var*4*prime >> 5;
       while (s4 < se) {
         atomicOr(s1, bit1);
@@ -95,10 +95,10 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     const uint32_t add = var*4*prime;
     while (vpos.w < SIZE*32) {
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
-      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
+      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w & 31));
       vpos.x += add;
       vpos.y += add;
       vpos.z += add;
@@ -106,11 +106,11 @@ __global__ void sieve(uint32_t *gsieve_all,
     }
 
     if (vpos.x < SIZE*32)
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
     if (vpos.y < SIZE*32)
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
     if (vpos.z < SIZE*32)
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
     }
   }
   
@@ -155,40 +155,40 @@ __global__ void sieve(uint32_t *gsieve_all,
       const uint32_t add = 2*prime;
 
       while (vpos.y < SIZE*32) {
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x%32));
-        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y%32));
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
+        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y & 31));
         vpos.x += add;
         vpos.y += add;
       }
         
       if (vpos.x < SIZE*32)
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x % 32));
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
     } else if (ip < SIEVERANGE2) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
           pos += prime;
           index = pos >> 5;
           if(index < SIZE){
-            atomicOr(&sieve[index], 1u << (pos%32));
+            atomicOr(&sieve[index], 1u << (pos & 31));
           }
         }
       }
     } else if(ip < SIEVERANGE3) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
         }
       }
     } else {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
       }
     }
     
@@ -202,8 +202,7 @@ __global__ void sieve(uint32_t *gsieve_all,
       olifo[lpos] = *poffset;
     }
     
-    lpos++;
-    lpos = lpos % NLIFO;
+    lpos = (lpos + 1) & (NLIFO - 1);
   }
 
 #pragma unroll
@@ -221,7 +220,7 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     uint32_t index = pos >> 5;
     if(index < SIZE)
-      atomicOr(&sieve[index], 1u << (pos%32));
+      atomicOr(&sieve[index], 1u << (pos & 31));
 
     if(ip+NLIFO < SCOUNT/LSIZE){
       pprimes += LSIZE;
@@ -233,8 +232,7 @@ __global__ void sieve(uint32_t *gsieve_all,
       olifo[lpos] = *poffset;
     }
 
-    lpos++;
-    lpos = lpos % NLIFO;
+    lpos = (lpos + 1) & (NLIFO - 1);
   }
 
   __syncthreads();
