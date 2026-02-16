@@ -133,8 +133,16 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   
   int computeUnits;
   CUDA_SAFE_CALL(cuDeviceGetAttribute(&computeUnits, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device));
-  mBlockSize = computeUnits * 4 * 64;
-  LOG_F(INFO, "GPU %d: has %d CUs", mID, computeUnits);
+
+  int maxThreadsPerSM;
+  CUDA_SAFE_CALL(cuDeviceGetAttribute(&maxThreadsPerSM, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, device));
+  int blocksPerSM = maxThreadsPerSM / (int)mLSize;
+  blocksPerSM = blocksPerSM < 2 ? 2 : blocksPerSM;
+  blocksPerSM = blocksPerSM > 8 ? 8 : blocksPerSM;
+
+  mBlockSize = computeUnits * blocksPerSM * mLSize;
+  LOG_F(INFO, "GPU %d: has %d CUs, %d max threads/SM, using %d blocks/SM (block batch size %u)",
+         mID, computeUnits, maxThreadsPerSM, blocksPerSM, mBlockSize);
   return true;
 }
 
@@ -991,12 +999,19 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		char ccoption[64];
 		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
         sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
-    const char *options[] = { ccoption, arguments.c_str() };
+
+    const char *defaultFlags = "--fmad=true";
+    std::vector<const char*> options = { ccoption };
+    if (arguments.empty())
+      options.push_back(defaultFlags);
+    else
+      options.push_back(arguments.c_str());
+
 		CUDA_SAFE_CALL(cuCtxSetCurrent(gpus[i].context));
     if (!cudaCompileKernel(kernelname,
 				{ "xpm/cuda/config.cu", "xpm/cuda/procs.cu", "xpm/cuda/fermat.cu", "xpm/cuda/sieve.cu", "xpm/cuda/sha256.cu", "xpm/cuda/benchmarks.cu"},
-				options,
-        arguments.empty() ? 1 : 2,
+				options.data(),
+        (int)options.size(),
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
