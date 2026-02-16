@@ -3,6 +3,18 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sys/stat.h>
+
+
+
+static bool getFileMTime(const char *path, time_t *mtime)
+{
+  struct stat st;
+  if (stat(path, &st) != 0)
+    return false;
+  *mtime = st.st_mtime;
+  return true;
+}
 
 bool cudaCompileKernel(const char *kernelName,
                        const std::vector<const char*> &sources,
@@ -13,8 +25,27 @@ bool cudaCompileKernel(const char *kernelName,
                        int,
                        bool needRebuild) 
 {
+  bool rebuild = needRebuild;
   std::ifstream testfile(kernelName);
-  if(needRebuild || !testfile) {
+  if (!rebuild && !testfile)
+    rebuild = true;
+
+  if (!rebuild && testfile) {
+    time_t kernelTime = 0;
+    if (!getFileMTime(kernelName, &kernelTime)) {
+      rebuild = true;
+    } else {
+      for (auto &src: sources) {
+        time_t srcTime = 0;
+        if (!getFileMTime(src, &srcTime) || srcTime > kernelTime) {
+          rebuild = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if(rebuild) {
     LOG_F(INFO, "compiling ...");
     
     std::string sourceFile;
