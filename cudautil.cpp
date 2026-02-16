@@ -49,6 +49,7 @@ bool cudaCompileKernel(const char *kernelName,
     if (compileResult != NVRTC_SUCCESS) {
       LOG_F(ERROR, "nvrtcCompileProgram error: %s", nvrtcGetErrorString(compileResult));
       LOG_F(ERROR, "%s\n", log.get());
+      NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
       return false;
     }
     
