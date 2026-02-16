@@ -168,7 +168,7 @@ __device__ void FermatTest352(const uint32_t *e, uint32_t *redcl)
     
     redcify352(index, q, e, m, windowSize);    
     monMul352(redcl, m, e, inverted);
-    remaining -= windowSize;
+    remaining -= size;
   }
   
   redcHalf352(redcl, e, inverted);
@@ -232,7 +232,7 @@ __device__ void FermatTest320(const uint32_t *e, uint32_t *redcl)
     
     redcify320(index, q, e, m, windowSize);
     monMul320(redcl, m, e, inverted);     
-    remaining -= windowSize;
+    remaining -= size;
   }
   
   redcHalf320(redcl, e, inverted);

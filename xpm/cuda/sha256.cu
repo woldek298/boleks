@@ -14,14 +14,14 @@ __constant__ uint32_t h_init[] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53
 
 #define HashPrimorial 16
 
-#define Zrotr(a, b) ((a << b) | (a >> (32 - b)))
+#define Rotl32(a, b) (__funnelshift_l((a), (a), (b)))
 #define Ch(x, y, z) (z ^ (x & (y ^ z)))
 #define Ma(x, y, z) ((x & z) | (y & (x | z)))
 
-#define ZR25(n) ((Zrotr((n), 25) ^ Zrotr((n), 14) ^ ((n) >> 3U)))
-#define ZR15(n) ((Zrotr((n), 15) ^ Zrotr((n), 13) ^ ((n) >> 10U)))
-#define ZR26(n) ((Zrotr((n), 26) ^ Zrotr((n), 21) ^ Zrotr((n), 7)))
-#define ZR30(n) ((Zrotr((n), 30) ^ Zrotr((n), 19) ^ Zrotr((n), 10)))
+#define ZR25(n) ((Rotl32((n), 25) ^ Rotl32((n), 14) ^ ((n) >> 3U)))
+#define ZR15(n) ((Rotl32((n), 15) ^ Rotl32((n), 13) ^ ((n) >> 10U)))
+#define ZR26(n) ((Rotl32((n), 26) ^ Rotl32((n), 21) ^ Rotl32((n), 7)))
+#define ZR30(n) ((Rotl32((n), 30) ^ Rotl32((n), 19) ^ Rotl32((n), 10)))
 
 __constant__ uint32_t indexesOne[] = { 1, 2, 3, 5, 6 };
 __constant__ uint32_t divisors24one[] = { 3, 5, 7, 13, 17 };
@@ -107,15 +107,20 @@ __constant__ unsigned gPrimes[] = {
   2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73
 };
 
-__device__ uint32_t sum24(const uint32_t *data, unsigned size, uint32_t *moddata)
+__device__ uint32_t sum24(const uint32_t *data, unsigned size, const uint32_t *moddata)
 {
   unsigned size24 = size*32; size24 += size24 % 24 ? 24 - size24%24 : 0;
   
   uint32_t acc = data[0] & 0x00FFFFFF;
 #pragma unroll
   for (unsigned i = 0, bitPos = 24; bitPos < size24; bitPos += 24, i++) {
-    uint64_t v64 = *(uint64_t*)(data+bitPos/32) >> (bitPos%32);
-    acc += __umul24(v64 &  0xFFFFFF, moddata[i]);
+    const unsigned lo = bitPos >> 5;
+    const unsigned shift = bitPos & 31;
+    uint64_t v64 = (uint64_t)data[lo];
+    if (lo + 1 < size)
+      v64 |= (uint64_t)data[lo + 1] << 32;
+    v64 >>= shift;
+    acc += (uint32_t)((v64 & 0xFFFFFFu) * moddata[i]);
   }
   
   return acc;
@@ -129,11 +134,21 @@ __device__ unsigned check24(uint32_t X, uint32_t divisor, uint32_t inversedMulti
 __device__ unsigned divisionCheck24(const uint32_t *data,
                                     unsigned size,
                                     uint32_t divisor,
-                                    uint32_t *moddata,
+                                    const uint32_t *moddata,
                                     uint32_t inversedMultiplier,
                                     unsigned offset)
 {
   return check24(sum24(data, size, moddata), divisor, inversedMultiplier, offset);
+}
+
+__device__ unsigned divisionCheck32(const uint32_t *data,
+                                    unsigned size,
+                                    uint32_t divisor)
+{
+  uint64_t rem = 0;
+  for (int i = (int)size - 1; i >= 0; --i)
+    rem = ((rem << 32) + data[i]) % divisor;
+  return rem == 0;
 }
 
 
@@ -473,13 +488,13 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       }
     }
     
-    unsigned lastBit = 0;
     #pragma unroll    
     for (unsigned i = 0; i < HashPrimorial-5; i++) {
       unsigned isDivisor =
       divisionCheck24(state, 8, divisors24[i], &modulos24[i*11], multipliers32[i], offsets32[i]);
+      if (i == 9 || i == 12)
+        isDivisor = divisionCheck32(state, 8, divisors24[i]);
       primorialBitField |= (isDivisor << indexes[i]);
-      lastBit = isDivisor ? i+5 : lastBit;
     }
     
     uint32_t prod13l = 1;
