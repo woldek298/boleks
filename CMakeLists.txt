@@ -43,8 +43,38 @@ find_package(Protobuf REQUIRED)
 if (Protobuf_FOUND)
   message(STATUS "Using system Protobuf version: ${Protobuf_VERSION}")
   set(Protobuf_INCLUDE_DIR /usr/include)
-  set(Protobuf_LIBRARIES /usr/lib/x86_64-linux-gnu/libprotobuf.so)
+  if (STATIC_BUILD AND EXISTS /usr/lib/x86_64-linux-gnu/libprotobuf.a)
+    set(Protobuf_LIBRARIES /usr/lib/x86_64-linux-gnu/libprotobuf.a)
+    message(STATUS "Using static protobuf: ${Protobuf_LIBRARIES}")
+  else()
+    set(Protobuf_LIBRARIES /usr/lib/x86_64-linux-gnu/libprotobuf.so)
+  endif()
   set(Protobuf_PROTOC_EXECUTABLE /usr/bin/protoc)
+endif()
+
+set(CURL_LINK_LIBRARY curl)
+set(JANSSON_LINK_LIBRARY jansson)
+set(SSL_LINK_LIBRARY ssl)
+set(CRYPTO_LINK_LIBRARY crypto)
+
+if (STATIC_BUILD AND NOT WIN32)
+  find_library(CURL_STATIC_LIBRARY NAMES libcurl.a curl)
+  find_library(JANSSON_STATIC_LIBRARY NAMES libjansson.a jansson)
+  find_library(SSL_STATIC_LIBRARY NAMES libssl.a ssl)
+  find_library(CRYPTO_STATIC_LIBRARY NAMES libcrypto.a crypto)
+
+  if (CURL_STATIC_LIBRARY)
+    set(CURL_LINK_LIBRARY ${CURL_STATIC_LIBRARY})
+  endif()
+  if (JANSSON_STATIC_LIBRARY)
+    set(JANSSON_LINK_LIBRARY ${JANSSON_STATIC_LIBRARY})
+  endif()
+  if (SSL_STATIC_LIBRARY)
+    set(SSL_LINK_LIBRARY ${SSL_STATIC_LIBRARY})
+  endif()
+  if (CRYPTO_STATIC_LIBRARY)
+    set(CRYPTO_LINK_LIBRARY ${CRYPTO_STATIC_LIBRARY})
+  endif()
 endif()
 
 # OpenCL optional detection (skip building OpenCL client if not available)
@@ -270,10 +300,10 @@ if (OpenCL_FOUND AND CLRX_ALL_FOUND)
     ${CLRX_AMDBIN_LIBRARY}
     ${CLRX_UTILS_LIBRARY}
     blkmaker
-    curl
-    jansson
-    crypto
-    ssl
+    ${CURL_LINK_LIBRARY}
+    ${JANSSON_LINK_LIBRARY}
+    ${CRYPTO_LINK_LIBRARY}
+    ${SSL_LINK_LIBRARY}
     stdc++
   )
 
@@ -344,10 +374,10 @@ if (CUDA_FOUND)
       CUDA::cuda_driver
       CUDA::nvrtc
       blkmaker
-      curl
-      jansson
-      crypto
-      ssl
+      ${CURL_LINK_LIBRARY}
+      ${JANSSON_LINK_LIBRARY}
+      ${CRYPTO_LINK_LIBRARY}
+      ${SSL_LINK_LIBRARY}
       stdc++
     )
   else()
@@ -402,10 +432,10 @@ if (CUDA_FOUND)
       ${CUDA_driver_LIBRARY}
       ${CUDA_nvrtc_LIBRARY}
       blkmaker
-      curl
-      jansson
-      crypto
-      ssl
+      ${CURL_LINK_LIBRARY}
+      ${JANSSON_LINK_LIBRARY}
+      ${CRYPTO_LINK_LIBRARY}
+      ${SSL_LINK_LIBRARY}
       stdc++
     )
   endif()
