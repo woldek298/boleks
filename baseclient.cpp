@@ -606,7 +606,8 @@ int main(int argc, char **argv)
         
     bool loopActive = true;
     time_t timer1sec = time(nullptr);
-    time_t timer1min = time(nullptr);
+    time_t timerStats = time(nullptr);
+    constexpr time_t kStatsIntervalSec = 5;
     zmq_pollitem_t items[] = {
       {gServer, 0, ZMQ_POLLIN, 0},
       {gSignals, 0, ZMQ_POLLIN, 0},
@@ -644,8 +645,8 @@ int main(int argc, char **argv)
 				loopActive &= (TimeoutCheckProc() == 0);
 			}
 			
-			if (currentTime - timer1min >= 60) {
-				timer1min = currentTime;
+			if (currentTime - timerStats >= kStatsIntervalSec) {
+				timerStats = currentTime;
 				loopActive &= (HandleTimer() == 0);
 			}
 		}              
