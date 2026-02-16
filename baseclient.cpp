@@ -38,6 +38,7 @@ static unsigned gNextReqID = 0;
 static Timer gRequestTimer;
 static unsigned gLatency = 0;
 static bool gHeartBeat = true;
+static time_t gLastHeartBeat = 0;
 static bool gExit = false;
 static bool gCompatible = false;
 
@@ -279,6 +280,7 @@ static int HandleReply(void *socket) {
 	}
 	
 	gHeartBeat = true;
+	gLastHeartBeat = time(nullptr);
 	
 	return 0;
 	
@@ -334,12 +336,14 @@ static int HandleWorkers(void *socket) {
 
 static int HandleTimer() {
 	
-	if(!gHeartBeat){
-		
-    LOG_F(WARNING, "Connection lost, reconnecting...");
+	const time_t now = time(nullptr);
+	if(gLastHeartBeat == 0)
+		gLastHeartBeat = now;
+
+	if ((now - gLastHeartBeat) > 60) {
+		LOG_F(WARNING, "Connection lost, reconnecting...");
 		gExit = false;
 		return -1;
-		
 	}
 	
 	{
@@ -365,8 +369,6 @@ static int HandleTimer() {
 	}
 	
 	PrintStats();
-	
-	gHeartBeat = false;
 	
 	//ReConnectSignals();
 	
@@ -615,6 +617,7 @@ int main(int argc, char **argv)
     };
 		
 		gHeartBeat = true;
+		gLastHeartBeat = time(nullptr);
 		gExit = true;
 		
 		if(rep.has_block())
