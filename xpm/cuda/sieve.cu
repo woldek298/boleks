@@ -257,11 +257,12 @@ __global__ void s_sieve(const uint32_t *gsieve1,
   const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
   const uint32_t sieveStride = SIZE * STRIPES / 2;
   const uint32_t multiplierBase = (id << 5) + SIZE * 32 * STRIPES / 2;
+  const uint32_t fullMask = 0xFFFFFFFFu;
 
   uint32_t tmp1[WIDTH];
 #pragma unroll
   for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
-    tmp1[i] = gsieve1[idx];
+    tmp1[i] = __ldg(gsieve1 + idx);
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -271,7 +272,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp1[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
@@ -291,7 +292,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
   uint32_t tmp2[WIDTH];
 #pragma unroll
   for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
-    tmp2[i] = gsieve2[idx];
+    tmp2[i] = __ldg(gsieve2 + idx);
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -300,7 +301,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp2[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
@@ -331,7 +332,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     if(TARGET & 1u)
       mask |= tmp1[start+TARGET/2];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
