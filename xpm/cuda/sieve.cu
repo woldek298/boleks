@@ -1,6 +1,10 @@
 #define S1RUNS (sizeof(nps_all)/sizeof(uint32_t))
 #define NLIFO 4
 
+#if (NLIFO & (NLIFO - 1))
+#error "NLIFO must be a power of two for bitmask wrap optimization"
+#endif
+
 // for 1024 threads in group
 #if (LSIZELOG2 == 10)
 __constant__ uint32_t nps_all[] = { 4, 4, 5, 6, 7, 7, 7, 9 }; // 1024 threads per block (default)
