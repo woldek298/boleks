@@ -255,11 +255,13 @@ __global__ void s_sieve(const uint32_t *gsieve1,
                         uint32_t depth)
 {
   const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t sieveStride = SIZE * STRIPES / 2;
+  const uint32_t multiplierBase = (id << 5) + SIZE * 32 * STRIPES / 2;
 
   uint32_t tmp1[WIDTH];
 #pragma unroll
-  for (int i = 0; i < WIDTH; ++i)
-    tmp1[i] = gsieve1[SIZE*STRIPES/2*i + id];
+  for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
+    tmp1[i] = gsieve1[idx];
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -271,7 +273,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
 
     if (mask != 0xFFFFFFFF) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
@@ -288,8 +290,8 @@ __global__ void s_sieve(const uint32_t *gsieve1,
 
   uint32_t tmp2[WIDTH];
 #pragma unroll
-  for (int i = 0; i < WIDTH; ++i)
-    tmp2[i] = gsieve2[SIZE*STRIPES/2*i + id];
+  for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
+    tmp2[i] = gsieve2[idx];
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -300,7 +302,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
 
     if (mask != 0xFFFFFFFF) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
@@ -331,7 +333,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
 
     if (mask != 0xFFFFFFFF) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
