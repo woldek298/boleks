@@ -21,7 +21,8 @@ __global__ void sieve(uint32_t *gsieve_all,
   const uint32_t id = threadIdx.x;
   const uint32_t stripe = blockIdx.x;
   const uint32_t line = blockIdx.y; 
-  const uint32_t entry = SIZE*32*(stripe+STRIPES/2);
+  const uint32_t sieveBits = SIZE * 32;
+  const uint32_t entry = sieveBits * (stripe + STRIPES/2);
   const float fentry = entry;
   
   const uint32_t* offset = &offset_all[PCOUNT*line];
@@ -57,10 +58,11 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     pos += __umul24(lpoff, prime);
 
+    const uint32_t step = __umul24(var, prime);
     uint4 vpos = {pos,
-                  pos + __umul24(var, prime),
-                  pos + __umul24(var*2, prime),
-                  pos + __umul24(var*3, prime)};
+                  pos + step,
+                  pos + step * 2,
+                  pos + step * 3};
 
     if (var*4 >= 32) {
       uint32_t *s1 = &sieve[vpos.x >> 5];
@@ -68,10 +70,10 @@ __global__ void sieve(uint32_t *gsieve_all,
       uint32_t *s3 = &sieve[vpos.z >> 5];
       uint32_t *s4 = &sieve[vpos.w >> 5];
       uint32_t *se = &sieve[SIZE];
-      uint32_t bit1 = orb << (vpos.x % 32);
-      uint32_t bit2 = orb << (vpos.y % 32);
-      uint32_t bit3 = orb << (vpos.z % 32);
-      uint32_t bit4 = orb << (vpos.w % 32);
+      uint32_t bit1 = orb << (vpos.x & 31);
+      uint32_t bit2 = orb << (vpos.y & 31);
+      uint32_t bit3 = orb << (vpos.z & 31);
+      uint32_t bit4 = orb << (vpos.w & 31);
       const uint32_t add = var*4*prime >> 5;
       while (s4 < se) {
         atomicOr(s1, bit1);
@@ -93,24 +95,24 @@ __global__ void sieve(uint32_t *gsieve_all,
     } else {
 
 
-    const uint32_t add = var*4*prime;
-    while (vpos.w < SIZE*32) {
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
-      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
+    const uint32_t add = step * 4;
+    while (vpos.w < sieveBits) {
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
+      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w & 31));
       vpos.x += add;
       vpos.y += add;
       vpos.z += add;
       vpos.w += add;
     }
 
-    if (vpos.x < SIZE*32)
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-    if (vpos.y < SIZE*32)
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-    if (vpos.z < SIZE*32)
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+    if (vpos.x < sieveBits)
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
+    if (vpos.y < sieveBits)
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
+    if (vpos.z < sieveBits)
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
     }
   }
   
@@ -154,41 +156,41 @@ __global__ void sieve(uint32_t *gsieve_all,
         
       const uint32_t add = 2*prime;
 
-      while (vpos.y < SIZE*32) {
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x%32));
-        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y%32));
+      while (vpos.y < sieveBits) {
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
+        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y & 31));
         vpos.x += add;
         vpos.y += add;
       }
         
-      if (vpos.x < SIZE*32)
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x % 32));
+      if (vpos.x < sieveBits)
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
     } else if (ip < SIEVERANGE2) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
           pos += prime;
           index = pos >> 5;
           if(index < SIZE){
-            atomicOr(&sieve[index], 1u << (pos%32));
+            atomicOr(&sieve[index], 1u << (pos & 31));
           }
         }
       }
     } else if(ip < SIEVERANGE3) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
         }
       }
     } else {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
       }
     }
     
@@ -203,7 +205,7 @@ __global__ void sieve(uint32_t *gsieve_all,
     }
     
     lpos++;
-    lpos = lpos % NLIFO;
+    lpos = lpos & (NLIFO - 1);
   }
 
 #pragma unroll
@@ -221,7 +223,7 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     uint32_t index = pos >> 5;
     if(index < SIZE)
-      atomicOr(&sieve[index], 1u << (pos%32));
+      atomicOr(&sieve[index], 1u << (pos & 31));
 
     if(ip+NLIFO < SCOUNT/LSIZE){
       pprimes += LSIZE;
@@ -234,13 +236,54 @@ __global__ void sieve(uint32_t *gsieve_all,
     }
 
     lpos++;
-    lpos = lpos % NLIFO;
+    lpos = lpos & (NLIFO - 1);
   }
 
   __syncthreads();
   uint32_t *gsieve = &gsieve_all[SIZE*(STRIPES/2*line + stripe)];
   for (uint32_t i = id; i < SIZE; i += LSIZE)
     gsieve[i] = sieve[i];
+}
+
+
+__device__ __forceinline__ void appendFoundWarp(bool is320,
+                                                const fermat_t &info,
+                                                uint32_t *fcount,
+                                                fermat_t *found320,
+                                                fermat_t *found352)
+{
+  const unsigned lane = threadIdx.x & 31;
+
+  const unsigned mask320 = __ballot_sync(0xFFFFFFFFu, is320);
+  if (mask320) {
+    const unsigned leader320 = __ffs(mask320) - 1;
+    unsigned base320 = 0;
+    if (lane == leader320)
+      base320 = atomicAdd(&fcount[0], __popc(mask320));
+    base320 = __shfl_sync(mask320, base320, leader320);
+
+    if (is320) {
+      const unsigned laneMask = (1u << lane) - 1;
+      const unsigned rank320 = __popc(mask320 & laneMask);
+      found320[base320 + rank320] = info;
+    }
+  }
+
+  const bool is352 = !is320;
+  const unsigned mask352 = __ballot_sync(0xFFFFFFFFu, is352);
+  if (mask352) {
+    const unsigned leader352 = __ffs(mask352) - 1;
+    unsigned base352 = 0;
+    if (lane == leader352)
+      base352 = atomicAdd(&fcount[1], __popc(mask352));
+    base352 = __shfl_sync(mask352, base352, leader352);
+
+    if (is352) {
+      const unsigned laneMask = (1u << lane) - 1;
+      const unsigned rank352 = __popc(mask352 & laneMask);
+      found352[base352 + rank352] = info;
+    }
+  }
 }
 
 __global__ void s_sieve(const uint32_t *gsieve1,
@@ -271,8 +314,6 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
 
       fermat_t info;
       info.index = multiplier;
@@ -280,7 +321,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       info.chainpos = 0;
       info.type = 0;
       info.hashid = hashid;
-      found[addr] = info;
+      appendFoundWarp(maxSize <= 320, info, fcount, found320, found352);
     }
   }
 
@@ -300,8 +341,6 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
 
       fermat_t info;
       info.index = multiplier;
@@ -309,7 +348,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       info.chainpos = 0;
       info.type = 1;
       info.hashid = hashid;
-      found[addr] = info;
+      appendFoundWarp(maxSize <= 320, info, fcount, found320, found352);
     }
   }
 
@@ -331,8 +370,6 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
 
       fermat_t info;
       info.index = multiplier;
@@ -340,7 +377,7 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       info.chainpos = 0;
       info.type = 2;
       info.hashid = hashid;
-      found[addr] = info;
+      appendFoundWarp(maxSize <= 320, info, fcount, found320, found352);
     }
   }
 }
