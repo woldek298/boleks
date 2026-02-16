@@ -31,6 +31,7 @@ extern "C" {
 
 #include <math.h>
 #include <thread>
+#include <algorithm>
 
 std::vector<unsigned> gPrimes;
 std::vector<unsigned> gPrimes2;
@@ -133,8 +134,16 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   
   int computeUnits;
   CUDA_SAFE_CALL(cuDeviceGetAttribute(&computeUnits, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device));
-  mBlockSize = computeUnits * 4 * 64;
-  LOG_F(INFO, "GPU %d: has %d CUs", mID, computeUnits);
+
+  int maxThreadsPerSM;
+  CUDA_SAFE_CALL(cuDeviceGetAttribute(&maxThreadsPerSM, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, device));
+  int blocksPerSM = maxThreadsPerSM / (int)mLSize;
+  blocksPerSM = blocksPerSM < 2 ? 2 : blocksPerSM;
+  blocksPerSM = blocksPerSM > 8 ? 8 : blocksPerSM;
+
+  mBlockSize = computeUnits * blocksPerSM * mLSize;
+  LOG_F(INFO, "GPU %d: has %d CUs, %d max threads/SM, using %d blocks/SM (block batch size %u)",
+         mID, computeUnits, maxThreadsPerSM, blocksPerSM, mBlockSize);
   return true;
 }
 
@@ -826,33 +835,44 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 
   unsigned clKernelPCount = cfg->lookupInt("", "weaveDepth", 40960);
   unsigned maxPrimesNum = clKernelPCount + 256;
-  {
-    unsigned primeTableLimit = maxPrimesNum * (log(maxPrimesNum) / log(2));
-    std::vector<bool> vfComposite(primeTableLimit, false);
-    for (unsigned int nFactor = 2; nFactor * nFactor < primeTableLimit; nFactor++) {
-      if (vfComposite[nFactor])
-        continue;
-      for (unsigned int nComposite = nFactor * nFactor; nComposite < primeTableLimit; nComposite += nFactor)
-        vfComposite[nComposite] = true;
+
+  auto buildPrimeTables = [&](unsigned requestedPrimes) {
+    gPrimes.clear();
+    unsigned primeTableLimit = std::max(16u, requestedPrimes * (unsigned)(log((double)requestedPrimes) / log(2.0)) + 512u);
+
+    while (true) {
+      std::vector<bool> vfComposite(primeTableLimit, false);
+      for (unsigned int nFactor = 2; nFactor * nFactor < primeTableLimit; nFactor++) {
+        if (vfComposite[nFactor])
+          continue;
+        for (unsigned int nComposite = nFactor * nFactor; nComposite < primeTableLimit; nComposite += nFactor)
+          vfComposite[nComposite] = true;
+      }
+
+      gPrimes.clear();
+      gPrimes.reserve(requestedPrimes);
+      for (unsigned int n = 2; n < primeTableLimit && gPrimes.size() < requestedPrimes; n++) {
+        if (!vfComposite[n])
+          gPrimes.push_back(n);
+      }
+
+      if (gPrimes.size() >= requestedPrimes)
+        break;
+
+      primeTableLimit = primeTableLimit + primeTableLimit / 2 + 1024;
     }
 
-    unsigned primesNum = 0;
-    for (unsigned int n = 2; n < primeTableLimit && primesNum < maxPrimesNum; n++) {
-      if (!vfComposite[n])
-        gPrimes.push_back(n);
-    }
-  }
-
-	{
     int np = gPrimes.size();
-		gPrimes2.resize(np*2);
-		for(int i = 0; i < np; ++i){
-			unsigned prime = gPrimes[i];
-			float fiprime = 1.f / float(prime);
-			gPrimes2[i*2] = prime;
-			memcpy(&gPrimes2[i*2+1], &fiprime, sizeof(float));
-		}
-	}
+    gPrimes2.resize(np * 2);
+    for (int i = 0; i < np; ++i) {
+      unsigned prime = gPrimes[i];
+      float fiprime = 1.f / float(prime);
+      gPrimes2[i * 2] = prime;
+      memcpy(&gPrimes2[i * 2 + 1], &fiprime, sizeof(float));
+    }
+  };
+
+  buildPrimeTables(maxPrimesNum);
 
   unsigned clKernelLSize = 1024;
   unsigned clKernelLSizeLog2 = 10;
@@ -889,10 +909,12 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 	
   unsigned clKernelStripes = cfg->lookupInt("", "sieveSize", 420);
   unsigned clKernelWindowSize = cfg->lookupInt("", "windowSize", 4096);
+  bool gpuAutoTune = cfg->lookupInt("", "gpuAutoTune", 1) != 0;
 
 	unsigned multiplierSizeLimits[3] = {26, 33, 36};
 	std::vector<bool> usegpu(mNumDevices, true);
   std::vector<int> sievePerRound(mNumDevices, 5);
+  std::vector<bool> sievePerRoundUserSet(mNumDevices, false);
 	mCoreFreq = std::vector<int>(mNumDevices, -1);
 	mMemFreq = std::vector<int>(mNumDevices, -1);
 	mPowertune = std::vector<int>(mNumDevices, 42);
@@ -930,8 +952,10 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 			if(i < cdevices.length())
 				usegpu[i] = !strcmp(cdevices[i], "1");
 			
-			if (i < csieveperround.length())
+			if (i < csieveperround.length()) {
 				sievePerRound[i] = atoi(csieveperround[i]);
+				sievePerRoundUserSet[i] = true;
+			}
 			
 			if(i < ccorespeed.length())
 				mCoreFreq[i] = atoi(ccorespeed[i]);
@@ -966,6 +990,72 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		}
 	}
 	
+	if (gpuAutoTune && !gpus.empty()) {
+		int minMaxThreadsPerBlock = 1024;
+		int minSharedMemPerBlock = 48 * 1024;
+		int totalSms = 0;
+
+		for (unsigned i = 0; i < gpus.size(); ++i) {
+			int maxThreadsPerBlock = 0;
+			int sharedMemPerBlock = 0;
+			int sms = 0;
+			CUDA_SAFE_CALL(cuDeviceGetAttribute(&maxThreadsPerBlock, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, gpus[i].device));
+			CUDA_SAFE_CALL(cuDeviceGetAttribute(&sharedMemPerBlock, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, gpus[i].device));
+			CUDA_SAFE_CALL(cuDeviceGetAttribute(&sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, gpus[i].device));
+			minMaxThreadsPerBlock = std::min(minMaxThreadsPerBlock, maxThreadsPerBlock);
+			minSharedMemPerBlock = std::min(minSharedMemPerBlock, sharedMemPerBlock);
+			totalSms += sms;
+		}
+
+		if (minMaxThreadsPerBlock >= 1024) {
+			clKernelLSize = 1024;
+			clKernelLSizeLog2 = 10;
+		} else if (minMaxThreadsPerBlock >= 512) {
+			clKernelLSize = 512;
+			clKernelLSizeLog2 = 9;
+		} else {
+			clKernelLSize = 256;
+			clKernelLSizeLog2 = 8;
+		}
+
+		const unsigned maxWindowByShared = (unsigned)std::max(minSharedMemPerBlock / 4, 2048);
+		if (maxWindowByShared >= 8192)
+			clKernelWindowSize = 8192;
+		else if (maxWindowByShared >= 6144)
+			clKernelWindowSize = 6144;
+		else if (maxWindowByShared >= 4096)
+			clKernelWindowSize = 4096;
+		else
+			clKernelWindowSize = 2048;
+
+		clKernelStripes = (unsigned)std::max(256, std::min(768, totalSms * 14));
+
+		unsigned tunedPCount = (unsigned)std::max(32768, std::min(65536, 32768 + totalSms * 96));
+		clKernelPCount = (tunedPCount / clKernelLSize) * clKernelLSize;
+		clKernelPCount = std::max(clKernelPCount, clKernelLSize);
+
+		for (unsigned i = 0; i < gpus.size() && i < sievePerRound.size(); ++i) {
+			if (sievePerRoundUserSet[gpus[i].index])
+				continue;
+			int sms = 0;
+			CUDA_SAFE_CALL(cuDeviceGetAttribute(&sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, gpus[i].device));
+			unsigned tuned = (unsigned)std::max(3, std::min(8, sms / 12));
+			sievePerRound[gpus[i].index] = tuned;
+		}
+
+		if (clKernelWidthAutoAdjust)
+			clKernelWidth = clKernelTarget * 2;
+
+		LOG_F(INFO, "CUDA auto-tune: LSIZE=%u LSIZELOG2=%u PCOUNT=%u STRIPES=%u SIZE=%u WIDTH=%u TARGET=%u",
+		      clKernelLSize, clKernelLSizeLog2, clKernelPCount, clKernelStripes, clKernelWindowSize, clKernelWidth, clKernelTarget);
+	}
+
+	unsigned requiredPrimes = clKernelPCount + 256;
+	if (requiredPrimes > gPrimes.size()) {
+		LOG_F(WARNING, "Auto-tuned weaveDepth requires %u primes (have %u), rebuilding prime tables", requiredPrimes, (unsigned)gPrimes.size());
+		buildPrimeTables(requiredPrimes);
+	}
+
 	// generate kernel configuration file
   {
     std::ofstream config("xpm/cuda/config.cu", std::fstream::trunc);
@@ -991,12 +1081,19 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		char ccoption[64];
 		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
         sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
-    const char *options[] = { ccoption, arguments.c_str() };
+
+    const char *defaultFlags = "--fmad=true";
+    std::vector<const char*> options = { ccoption };
+    if (arguments.empty())
+      options.push_back(defaultFlags);
+    else
+      options.push_back(arguments.c_str());
+
 		CUDA_SAFE_CALL(cuCtxSetCurrent(gpus[i].context));
     if (!cudaCompileKernel(kernelname,
 				{ "xpm/cuda/config.cu", "xpm/cuda/procs.cu", "xpm/cuda/fermat.cu", "xpm/cuda/sieve.cu", "xpm/cuda/sha256.cu", "xpm/cuda/benchmarks.cu"},
-				options,
-        arguments.empty() ? 1 : 2,
+				options.data(),
+        (int)options.size(),
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
@@ -1013,7 +1110,7 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
     return false;
   } else {
     if (mode == "solo") {
-        PrimeMiner* miner = new PrimeMiner(0, 1, sievePerRound[0], depth, clKernelLSize);
+        PrimeMiner* miner = new PrimeMiner(0, 1, sievePerRound[gpus[0].index], depth, clKernelLSize);
         if (!miner->Initialize(gpus[0].context, gpus[0].device, modules[0])) {
             LOG_F(ERROR, "Failed to initialize PrimeMiner");
             delete miner;
@@ -1030,7 +1127,7 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
     }
     for(unsigned i = 0; i < gpus.size(); ++i) {
       std::pair<PrimeMiner*,void*> worker;
-      PrimeMiner* miner = new PrimeMiner(i, gpus.size(), sievePerRound[i], depth, clKernelLSize);
+      PrimeMiner* miner = new PrimeMiner(i, gpus.size(), sievePerRound[gpus[i].index], depth, clKernelLSize);
       miner->Initialize(gpus[i].context, gpus[i].device, modules[i]);
       config_t config = miner->getConfig();
 			if ((!clKernelTargetAutoAdjust && config.TARGET != clKernelTarget) ||

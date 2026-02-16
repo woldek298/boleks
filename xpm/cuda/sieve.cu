@@ -1,6 +1,10 @@
 #define S1RUNS (sizeof(nps_all)/sizeof(uint32_t))
 #define NLIFO 4
 
+#if (NLIFO & (NLIFO - 1))
+#error "NLIFO must be a power of two for bitmask wrap optimization"
+#endif
+
 // for 1024 threads in group
 #if (LSIZELOG2 == 10)
 __constant__ uint32_t nps_all[] = { 4, 4, 5, 6, 7, 7, 7, 9 }; // 1024 threads per block (default)
@@ -68,10 +72,10 @@ __global__ void sieve(uint32_t *gsieve_all,
       uint32_t *s3 = &sieve[vpos.z >> 5];
       uint32_t *s4 = &sieve[vpos.w >> 5];
       uint32_t *se = &sieve[SIZE];
-      uint32_t bit1 = orb << (vpos.x % 32);
-      uint32_t bit2 = orb << (vpos.y % 32);
-      uint32_t bit3 = orb << (vpos.z % 32);
-      uint32_t bit4 = orb << (vpos.w % 32);
+      uint32_t bit1 = orb << (vpos.x & 31);
+      uint32_t bit2 = orb << (vpos.y & 31);
+      uint32_t bit3 = orb << (vpos.z & 31);
+      uint32_t bit4 = orb << (vpos.w & 31);
       const uint32_t add = var*4*prime >> 5;
       while (s4 < se) {
         atomicOr(s1, bit1);
@@ -95,10 +99,10 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     const uint32_t add = var*4*prime;
     while (vpos.w < SIZE*32) {
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
-      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
+      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w & 31));
       vpos.x += add;
       vpos.y += add;
       vpos.z += add;
@@ -106,11 +110,11 @@ __global__ void sieve(uint32_t *gsieve_all,
     }
 
     if (vpos.x < SIZE*32)
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
+      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x & 31));
     if (vpos.y < SIZE*32)
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
+      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y & 31));
     if (vpos.z < SIZE*32)
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z & 31));
     }
   }
   
@@ -155,40 +159,40 @@ __global__ void sieve(uint32_t *gsieve_all,
       const uint32_t add = 2*prime;
 
       while (vpos.y < SIZE*32) {
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x%32));
-        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y%32));
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
+        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y & 31));
         vpos.x += add;
         vpos.y += add;
       }
         
       if (vpos.x < SIZE*32)
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x % 32));
+        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x & 31));
     } else if (ip < SIEVERANGE2) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
           pos += prime;
           index = pos >> 5;
           if(index < SIZE){
-            atomicOr(&sieve[index], 1u << (pos%32));
+            atomicOr(&sieve[index], 1u << (pos & 31));
           }
         }
       }
     } else if(ip < SIEVERANGE3) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          atomicOr(&sieve[index], 1u << (pos & 31));
         }
       }
     } else {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        atomicOr(&sieve[index], 1u << (pos & 31));
       }
     }
     
@@ -202,8 +206,7 @@ __global__ void sieve(uint32_t *gsieve_all,
       olifo[lpos] = *poffset;
     }
     
-    lpos++;
-    lpos = lpos % NLIFO;
+    lpos = (lpos + 1) & (NLIFO - 1);
   }
 
 #pragma unroll
@@ -221,7 +224,7 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     uint32_t index = pos >> 5;
     if(index < SIZE)
-      atomicOr(&sieve[index], 1u << (pos%32));
+      atomicOr(&sieve[index], 1u << (pos & 31));
 
     if(ip+NLIFO < SCOUNT/LSIZE){
       pprimes += LSIZE;
@@ -233,8 +236,7 @@ __global__ void sieve(uint32_t *gsieve_all,
       olifo[lpos] = *poffset;
     }
 
-    lpos++;
-    lpos = lpos % NLIFO;
+    lpos = (lpos + 1) & (NLIFO - 1);
   }
 
   __syncthreads();
@@ -253,11 +255,14 @@ __global__ void s_sieve(const uint32_t *gsieve1,
                         uint32_t depth)
 {
   const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t sieveStride = SIZE * STRIPES / 2;
+  const uint32_t multiplierBase = (id << 5) + SIZE * 32 * STRIPES / 2;
+  const uint32_t fullMask = 0xFFFFFFFFu;
 
   uint32_t tmp1[WIDTH];
 #pragma unroll
-  for (int i = 0; i < WIDTH; ++i)
-    tmp1[i] = gsieve1[SIZE*STRIPES/2*i + id];
+  for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
+    tmp1[i] = __ldg(gsieve1 + idx);
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -267,9 +272,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp1[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
@@ -286,8 +291,8 @@ __global__ void s_sieve(const uint32_t *gsieve1,
 
   uint32_t tmp2[WIDTH];
 #pragma unroll
-  for (int i = 0; i < WIDTH; ++i)
-    tmp2[i] = gsieve2[SIZE*STRIPES/2*i + id];
+  for (int i = 0, idx = id; i < WIDTH; ++i, idx += sieveStride)
+    tmp2[i] = __ldg(gsieve2 + idx);
 
 #pragma unroll
   for (int start = 0; start <= WIDTH-TARGET; ++start){
@@ -296,9 +301,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp2[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
@@ -327,9 +332,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     if(TARGET & 1u)
       mask |= tmp1[start+TARGET/2];
 
-    if (mask != 0xFFFFFFFF) {
+    if (mask != fullMask) {
       unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
+      unsigned multiplier = bit + multiplierBase;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
       const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
       fermat_t *found = (maxSize <= 320) ? found320 : found352;
