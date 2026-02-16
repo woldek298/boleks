@@ -456,7 +456,7 @@ endif()
 # Copy CUDA config.txt to build directory to avoid manual copying
 if (EXISTS ${CMAKE_SOURCE_DIR}/xpm/cuda/config.txt)
   file(COPY
-    ${CMAKE_SOURCE_DIR}/xpm/opencl/config.txt
+    ${CMAKE_SOURCE_DIR}/xpm/cuda/config.txt
     DESTINATION ${CMAKE_BINARY_DIR}
     FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   )

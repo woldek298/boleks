@@ -10,7 +10,7 @@ bool cudaCompileKernel(const char *kernelName,
                        int argumentsNum,
                        CUmodule *module,
                        int majorComputeCapability,
-                       int,
+                       int minorComputeCapability,
                        bool needRebuild) 
 {
   std::ifstream testfile(kernelName);
@@ -39,7 +39,31 @@ bool cudaCompileKernel(const char *kernelName,
                          NULL,
                          NULL));
 
-    nvrtcResult compileResult = nvrtcCompileProgram(prog, argumentsNum, arguments);
+    std::vector<std::string> optionStorage;
+    std::vector<const char*> finalArguments;
+    optionStorage.reserve(argumentsNum + 3);
+    finalArguments.reserve(argumentsNum + 3);
+
+    optionStorage.emplace_back("--gpu-architecture=compute_" + std::to_string(majorComputeCapability) + std::to_string(minorComputeCapability));
+    optionStorage.emplace_back("--fmad=true");
+    optionStorage.emplace_back("--extra-device-vectorization");
+
+    for (int i = 0; i < argumentsNum; ++i) {
+      if (!arguments[i])
+        continue;
+      if (strlen(arguments[i]) == 0)
+        continue;
+      std::string arg(arguments[i]);
+      if (arg.rfind("--gpu-architecture=", 0) == 0)
+        optionStorage[0] = arg;
+      else
+        optionStorage.emplace_back(std::move(arg));
+    }
+
+    for (const auto &arg : optionStorage)
+      finalArguments.push_back(arg.c_str());
+
+    nvrtcResult compileResult = nvrtcCompileProgram(prog, (int)finalArguments.size(), finalArguments.data());
     
     // Obtain compilation log from the program.
     size_t logSize;

@@ -133,8 +133,17 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   
   int computeUnits;
   CUDA_SAFE_CALL(cuDeviceGetAttribute(&computeUnits, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device));
-  mBlockSize = computeUnits * 4 * 64;
+  int majorComputeCapability;
+  int minorComputeCapability;
+  CUDA_SAFE_CALL(cuDeviceGetAttribute(&majorComputeCapability, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device));
+  CUDA_SAFE_CALL(cuDeviceGetAttribute(&minorComputeCapability, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device));
+
+  const bool isAda = (majorComputeCapability == 8 && minorComputeCapability == 9);
+  mBlockSize = computeUnits * (isAda ? 8u : 4u) * 64u;
   LOG_F(INFO, "GPU %d: has %d CUs", mID, computeUnits);
+  if (isAda) {
+    LOG_F(INFO, "GPU %d: Ada Lovelace detected (SM %d.%d), using larger Fermat dispatch block size %u", mID, majorComputeCapability, minorComputeCapability, mBlockSize);
+  }
   return true;
 }
 
@@ -988,15 +997,13 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 	modules.resize(gpus.size());
   for (unsigned i = 0; i < gpus.size(); i++) {
 		char kernelname[64];
-		char ccoption[64];
 		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
-        sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
-    const char *options[] = { ccoption, arguments.c_str() };
+    const char *options[] = { arguments.c_str() };
 		CUDA_SAFE_CALL(cuCtxSetCurrent(gpus[i].context));
     if (!cudaCompileKernel(kernelname,
 				{ "xpm/cuda/config.cu", "xpm/cuda/procs.cu", "xpm/cuda/fermat.cu", "xpm/cuda/sieve.cu", "xpm/cuda/sha256.cu", "xpm/cuda/benchmarks.cu"},
 				options,
-        arguments.empty() ? 1 : 2,
+        arguments.empty() ? 0 : 1,
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
