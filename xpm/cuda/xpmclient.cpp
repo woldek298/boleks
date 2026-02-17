@@ -474,8 +474,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				hash.iter = iteration;
 				hash.time = blockheader.time;
 				hash.nonce = hashmod.found[i];
-        uint32_t primorialBitField = hashmod.primorialBitField[i];
-        uint32_t primorialIdx = primorialBitField >> 16;
+	        uint32_t primorialBitField = hashmod.primorialBitField[i];
+	        uint32_t primorialIdx = primorialBitField >> 16;
         uint64_t realPrimorial = 1;
         for (unsigned j = 0; j < primorialIdx+1; j++) {
           if (primorialBitField & (1 << j))
@@ -484,8 +484,20 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
         
         mpz_class mpzRealPrimorial;        
         mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);            
-        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+	        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
+
+	        // Prefer higher-primorial hashes when queue pressure is high.
+	        // This improves end-to-end share quality when sieve/Fermat stages are saturated.
+	        const unsigned queuedHashes = hashes.remaining();
+	        unsigned minPrimorialIdx = 0;
+	        if (queuedHashes > (PW * 7) / 8)
+	          minPrimorialIdx = 2;
+	        else if (queuedHashes > (PW * 3) / 4)
+	          minPrimorialIdx = 1;
+	        if (primorialIdx < minPrimorialIdx)
+	          continue;
+
+	        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
         unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);      
         mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);        
 				
@@ -1480,6 +1492,18 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 mpz_class mpzRealPrimorial;        
                 mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
                 primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
+
+                // Prefer higher-primorial hashes when queue pressure is high.
+                // This improves end-to-end share quality when sieve/Fermat stages are saturated.
+                const unsigned queuedHashes = hashes.remaining();
+                unsigned minPrimorialIdx = 0;
+                if (queuedHashes > (PW * 7) / 8)
+                    minPrimorialIdx = 2;
+                else if (queuedHashes > (PW * 3) / 4)
+                    minPrimorialIdx = 1;
+                if (primorialIdx < minPrimorialIdx)
+                    continue;
+
                 mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
                 unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);
                 mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
