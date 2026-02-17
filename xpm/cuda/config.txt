@@ -28,9 +28,9 @@ address = "AMgtSW8ge2mvqxaiWo11GqTKx6rQ2J57yA";
 #   onCrash = "shutdown -r 1"
 onCrash = "0";
 
-# - Valid cpuload range: 0 to 4
-# - More than 2 does not make sense
-# - You can use 0 for really slow CPUs
+# - Valid cpuload range: 0 to 5
+# - Mapped to depth as: depth = cpuload + 5
+# - Example: cpuload=0 -> depth=5, cpuload=5 -> depth=10
 cpuload = "1";
 
 # Target Cunningham chain length, default = auto (adjust to difficulty)
