@@ -866,9 +866,9 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
   }
   
 	int cpuload = cfg->lookupInt("", "cpuload", 1);
-	int depth = 5 - cpuload;
-	depth = std::max(depth, 2);
-	depth = std::min(depth, 5);
+	int depth = cpuload + 5;
+	depth = std::max(depth, 5);
+	depth = std::min(depth, 10);
 	
   onCrash = cfg->lookupString("", "onCrash", "");
 
