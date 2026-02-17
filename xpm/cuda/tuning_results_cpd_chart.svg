@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="700">
+<style>text{font-family:Arial,sans-serif;font-size:12px}.title{font-size:18px;font-weight:bold}</style>
+<text class="title" x="750.0" y="25" text-anchor="middle">CPD by profile</text>
+<line x1="70" y1="40" x2="70" y2="520" stroke="black"/>
+<line x1="70" y1="520" x2="1470" y2="520" stroke="black"/>
+<line x1="65" y1="520.0" x2="70" y2="520.0" stroke="black"/>
+<text x="62" y="524.0" text-anchor="end">86.21</text>
+<line x1="65" y1="424.0" x2="70" y2="424.0" stroke="black"/>
+<text x="62" y="428.0" text-anchor="end">87.53</text>
+<line x1="65" y1="328.0" x2="70" y2="328.0" stroke="black"/>
+<text x="62" y="332.0" text-anchor="end">88.85</text>
+<line x1="65" y1="232.0" x2="70" y2="232.0" stroke="black"/>
+<text x="62" y="236.0" text-anchor="end">90.17</text>
+<line x1="65" y1="136.0" x2="70" y2="136.0" stroke="black"/>
+<text x="62" y="140.0" text-anchor="end">91.50</text>
+<line x1="65" y1="40.0" x2="70" y2="40.0" stroke="black"/>
+<text x="62" y="44.0" text-anchor="end">92.82</text>
+<rect x="83.1" y="40.0" width="61.2" height="480.0" fill="#2ca02c"/>
+<text x="113.8" y="36.0" text-anchor="middle">92.82</text>
+<g transform="translate(113.8,535.0) rotate(55)"><text text-anchor="start">G-ml-base[24,31,35]</text></g>
+<rect x="170.6" y="129.7" width="61.2" height="390.3" fill="#1f77b4"/>
+<text x="201.2" y="125.7" text-anchor="middle">91.58</text>
+<g transform="translate(201.2,535.0) rotate(55)"><text text-anchor="start">G</text></g>
+<rect x="258.1" y="134.1" width="61.2" height="385.9" fill="#1f77b4"/>
+<text x="288.8" y="130.1" text-anchor="middle">91.52</text>
+<g transform="translate(288.8,535.0) rotate(55)"><text text-anchor="start">L</text></g>
+<rect x="345.6" y="166.9" width="61.2" height="353.1" fill="#1f77b4"/>
+<text x="376.2" y="162.9" text-anchor="middle">91.07</text>
+<g transform="translate(376.2,535.0) rotate(55)"><text text-anchor="start">H</text></g>
+<rect x="433.1" y="176.0" width="61.2" height="344.0" fill="#1f77b4"/>
+<text x="463.8" y="172.0" text-anchor="middle">90.95</text>
+<g transform="translate(463.8,535.0) rotate(55)"><text text-anchor="start">G-ml-[25,32,36]</text></g>
+<rect x="520.6" y="232.2" width="61.2" height="287.8" fill="#1f77b4"/>
+<text x="551.2" y="228.2" text-anchor="middle">90.17</text>
+<g transform="translate(551.2,535.0) rotate(55)"><text text-anchor="start">M</text></g>
+<rect x="608.1" y="262.4" width="61.2" height="257.6" fill="#1f77b4"/>
+<text x="638.8" y="258.4" text-anchor="middle">89.76</text>
+<g transform="translate(638.8,535.0) rotate(55)"><text text-anchor="start">J</text></g>
+<rect x="695.6" y="273.9" width="61.2" height="246.1" fill="#1f77b4"/>
+<text x="726.2" y="269.9" text-anchor="middle">89.60</text>
+<g transform="translate(726.2,535.0) rotate(55)"><text text-anchor="start">K</text></g>
+<rect x="783.1" y="279.1" width="61.2" height="240.9" fill="#1f77b4"/>
+<text x="813.8" y="275.1" text-anchor="middle">89.53</text>
+<g transform="translate(813.8,535.0) rotate(55)"><text text-anchor="start">I</text></g>
+<rect x="870.6" y="314.9" width="61.2" height="205.1" fill="#1f77b4"/>
+<text x="901.2" y="310.9" text-anchor="middle">89.03</text>
+<g transform="translate(901.2,535.0) rotate(55)"><text text-anchor="start">G-ml-[23,30,34]</text></g>
+<rect x="958.1" y="323.9" width="61.2" height="196.1" fill="#1f77b4"/>
+<text x="988.8" y="319.9" text-anchor="middle">88.91</text>
+<g transform="translate(988.8,535.0) rotate(55)"><text text-anchor="start">F</text></g>
+<rect x="1045.6" y="375.9" width="61.2" height="144.1" fill="#1f77b4"/>
+<text x="1076.2" y="371.9" text-anchor="middle">88.19</text>
+<g transform="translate(1076.2,535.0) rotate(55)"><text text-anchor="start">T1</text></g>
+<rect x="1133.1" y="389.3" width="61.2" height="130.7" fill="#1f77b4"/>
+<text x="1163.8" y="385.3" text-anchor="middle">88.01</text>
+<g transform="translate(1163.8,535.0) rotate(55)"><text text-anchor="start">T2</text></g>
+<rect x="1220.6" y="435.8" width="61.2" height="84.2" fill="#1f77b4"/>
+<text x="1251.2" y="431.8" text-anchor="middle">87.37</text>
+<g transform="translate(1251.2,535.0) rotate(55)"><text text-anchor="start">B</text></g>
+<rect x="1308.1" y="470.8" width="61.2" height="49.2" fill="#1f77b4"/>
+<text x="1338.8" y="466.8" text-anchor="middle">86.89</text>
+<g transform="translate(1338.8,535.0) rotate(55)"><text text-anchor="start">A</text></g>
+<rect x="1395.6" y="520.0" width="61.2" height="0.0" fill="#1f77b4"/>
+<text x="1426.2" y="516.0" text-anchor="middle">86.21</text>
+<g transform="translate(1426.2,535.0) rotate(55)"><text text-anchor="start">T3</text></g>
+</svg>
