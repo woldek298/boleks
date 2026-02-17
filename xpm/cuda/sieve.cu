@@ -16,13 +16,12 @@ __global__ void sieve(uint32_t *gsieve_all,
                       uint32_t* offset_all,
                       uint2 *primes)
 {
-  __shared__ uint32_t sieve[SIZE];
-  
   const uint32_t id = threadIdx.x;
   const uint32_t stripe = blockIdx.x;
   const uint32_t line = blockIdx.y; 
   const uint32_t entry = SIZE*32*(stripe+STRIPES/2);
   const float fentry = entry;
+  uint32_t *sieve = &gsieve_all[SIZE*(STRIPES/2*line + stripe)];
   
   const uint32_t* offset = &offset_all[PCOUNT*line];
   
@@ -237,10 +236,6 @@ __global__ void sieve(uint32_t *gsieve_all,
     lpos = lpos % NLIFO;
   }
 
-  __syncthreads();
-  uint32_t *gsieve = &gsieve_all[SIZE*(STRIPES/2*line + stripe)];
-  for (uint32_t i = id; i < SIZE; i += LSIZE)
-    gsieve[i] = sieve[i];
 }
 
 __global__ void s_sieve(const uint32_t *gsieve1,
