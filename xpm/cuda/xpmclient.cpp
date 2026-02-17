@@ -196,7 +196,7 @@ void PrimeMiner::FermatDispatch(pipeline_t &fermat,
     CUDA_SAFE_CALL(fermat.buffer[widx].count.copyToDevice(mHMFermatStream));
     
     fermat.bsize = 0;
-    if(count > mBlockSize){                 
+    if(count >= mBlockSize){
       fermat.bsize = count - (count % mBlockSize);
       {
         // Fermat test setup
@@ -532,7 +532,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
       int numhash = ((int)(16*mSievePerRound) - (int)hashes.remaining()) * numHashCoeff;
 
 			if(numhash > 0){
-        numhash += mLSize - numhash % mLSize;
+        unsigned remainder = numhash % mLSize;
+        if (remainder)
+          numhash += mLSize - remainder;
 				if(blockheader.nonce > (1u << 31)){
 					blockheader.time += mThreads;
 					blockheader.nonce = 1;

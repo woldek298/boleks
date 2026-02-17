@@ -389,28 +389,44 @@ __global__ void check_fermat(fermat_t *info_out,
                              const fermat_t *info_in,
                              uint32_t depth)
 {
-	
 	const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-	
-	if(results[id] == 1){
-		
-		fermat_t info = info_in[id];
-		info.chainpos++;
-		
-		if(info.chainpos < depth){
-			
-			const uint32_t i = atomicAdd(count, 1);
-			info_out[i] = info;
-			
-		}else{
-			
-			const uint32_t i = atomicAdd(count_fin, 1);
-			info_fin_out[i] = info;
-			
-		}
-		
-	}
-	
+  const uint32_t lane = threadIdx.x & 31;
+  const uint32_t activeMask = __activemask();
+
+  fermat_t info;
+  bool passed = results[id] == 1;
+  if (passed) {
+    info = info_in[id];
+    info.chainpos++;
+  }
+
+  bool toNext = passed && info.chainpos < depth;
+  const uint32_t nextMask = __ballot_sync(activeMask, toNext);
+  if (nextMask) {
+    const uint32_t leader = __ffs(nextMask) - 1;
+    uint32_t base = 0;
+    if (lane == leader)
+      base = atomicAdd(count, __popc(nextMask));
+    base = __shfl_sync(activeMask, base, leader);
+
+    const uint32_t rank = __popc(nextMask & ((1u << lane) - 1));
+    if (toNext)
+      info_out[base + rank] = info;
+  }
+
+  bool toFinal = passed && !toNext;
+  const uint32_t finMask = __ballot_sync(activeMask, toFinal);
+  if (finMask) {
+    const uint32_t leader = __ffs(finMask) - 1;
+    uint32_t base = 0;
+    if (lane == leader)
+      base = atomicAdd(count_fin, __popc(finMask));
+    base = __shfl_sync(activeMask, base, leader);
+
+    const uint32_t rank = __popc(finMask & ((1u << lane) - 1));
+    if (toFinal)
+      info_fin_out[base + rank] = info;
+  }
 }
 
 
