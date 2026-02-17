@@ -38,7 +38,14 @@ public:
 public:
   cudaBuffer() : _size(0), _hostData(0), _deviceData(0) {}
   ~cudaBuffer() {
-    delete[] _hostData;
+    if (_hostData) {
+      CUresult hostResult = cuMemFreeHost(_hostData);
+      if (hostResult != CUDA_SUCCESS) {
+        const char *msg;
+        cuGetErrorName(hostResult, &msg);
+        LOG_F(ERROR, "CUDA host memory free failed with error %s code: %i\n", msg, static_cast<int>(hostResult));
+      }
+    }
     if (_deviceData) {
       CUresult result = cuMemFree(_deviceData);
       if (result != CUDA_SUCCESS) {
@@ -51,9 +58,19 @@ public:
   
   CUresult init(size_t size, bool hostNoAccess) {
     _size = size;
-    if (!hostNoAccess)
-      _hostData = new T[size];
-    return cuMemAlloc(&_deviceData, sizeof(T)*size);
+    if (!hostNoAccess) {
+      CUresult hostResult = cuMemAllocHost(reinterpret_cast<void**>(&_hostData), sizeof(T)*size);
+      if (hostResult != CUDA_SUCCESS) {
+        return hostResult;
+      }
+    }
+
+    CUresult deviceResult = cuMemAlloc(&_deviceData, sizeof(T)*size);
+    if (deviceResult != CUDA_SUCCESS && _hostData) {
+      cuMemFreeHost(_hostData);
+      _hostData = 0;
+    }
+    return deviceResult;
   }
   
   CUresult copyToDevice() {
