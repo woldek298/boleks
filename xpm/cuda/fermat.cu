@@ -379,6 +379,44 @@ __global__ void fermat_kernel320(uint8_t *result, const uint32_t *fprimes)
   result[id] = fermat320(e);
 }
 
+__device__ __noinline__ bool fermat352_noinline(const uint32_t *p)
+{
+  return fermat352(p);
+}
+
+__device__ __noinline__ bool fermat320_noinline(const uint32_t *p)
+{
+  return fermat320(p);
+}
+
+extern "C" __global__ __launch_bounds__(64, 8)
+void fermat_kernel_lr(uint8_t *result, const uint32_t *fprimes)
+{
+  const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t gsize = gridDim.x * blockDim.x;
+  uint32_t e[11];
+
+#pragma unroll
+  for (unsigned i = 0; i < 11; i++)
+    e[i] = fprimes[gsize*i + id];
+
+  result[id] = fermat352_noinline(e);
+}
+
+extern "C" __global__ __launch_bounds__(64, 8)
+void fermat_kernel320_lr(uint8_t *result, const uint32_t *fprimes)
+{
+  const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t gsize = gridDim.x * blockDim.x;
+  uint32_t e[10];
+
+#pragma unroll
+  for (unsigned i = 0; i < 10; i++)
+    e[i] = fprimes[gsize*i + id];
+
+  result[id] = fermat320_noinline(e);
+}
+
 
 
 __global__ void check_fermat(fermat_t *info_out,

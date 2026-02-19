@@ -220,8 +220,11 @@ private:
 	CUfunction mSieveSearch;
 	CUfunction mFermatSetup;
 	CUfunction mFermatKernel352;
-  CUfunction mFermatKernel320;  
+  CUfunction mFermatKernel320;
+	CUfunction mFermatKernel352LR;
+  CUfunction mFermatKernel320LR;
 	CUfunction mFermatCheck;
+  bool mUseLowRegFermatKernels;
   info_t final;
   cudaBuffer<uint32_t> hashBuf;
 };

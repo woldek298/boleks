@@ -79,8 +79,11 @@ PrimeMiner::PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, un
 	mSieveSearch = 0;
 	mFermatSetup = 0;
 	mFermatKernel352 = 0;
-  mFermatKernel320 = 0;  
-	mFermatCheck = 0;  
+  mFermatKernel320 = 0;
+	mFermatKernel352LR = 0;
+  mFermatKernel320LR = 0;
+	mFermatCheck = 0;
+  mUseLowRegFermatKernels = false;
 	
 	MakeExit = false;
 	
@@ -106,7 +109,14 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatSetup, module, "_Z12setup_fermatPjPK8fermat_tS_"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatKernel352, module, "_Z13fermat_kernelPhPKj"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatKernel320, module, "_Z16fermat_kernel320PhPKj"));
-  CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatCheck, module, "_Z12check_fermatP8fermat_tPjS0_S1_PKhPKS_j"));  
+  CUresult lr352 = cuModuleGetFunction(&mFermatKernel352LR, module, "fermat_kernel_lr");
+  CUresult lr320 = cuModuleGetFunction(&mFermatKernel320LR, module, "fermat_kernel320_lr");
+  mUseLowRegFermatKernels = (lr352 == CUDA_SUCCESS) && (lr320 == CUDA_SUCCESS);
+  if (mUseLowRegFermatKernels)
+    LOG_F(INFO, "GPU %d: low-register Fermat kernels enabled", mID);
+  else
+    LOG_F(INFO, "GPU %d: low-register Fermat kernels unavailable, using default variants", mID);
+  CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatCheck, module, "_Z12check_fermatP8fermat_tPjS0_S1_PKhPKS_j"));
   
   CUDA_SAFE_CALL(cuStreamCreate(&mSieveStream, CU_STREAM_NON_BLOCKING));
   CUDA_SAFE_CALL(cuStreamCreate(&mHMFermatStream, CU_STREAM_NON_BLOCKING));
@@ -669,8 +679,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		
     final.count[0] = 0;
     CUDA_SAFE_CALL(final.count.copyToDevice(mHMFermatStream));
-    FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
-    FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
+    FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount,
+                  mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320, mSievePerRound);
+    FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount,
+                  mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352, mSievePerRound);
 
     // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
     // syncronize our stream one time per iteration
@@ -1665,8 +1677,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         final.count[0] = 0;
         CUDA_SAFE_CALL(final.count.copyToDevice(mHMFermatStream));
-        FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
-        FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
+        FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount,
+                       mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320, mSievePerRound);
+        FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount,
+                       mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352, mSievePerRound);
 
         // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
         // syncronize our stream one time per iteration
