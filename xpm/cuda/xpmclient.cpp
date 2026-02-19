@@ -850,9 +850,9 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		gPrimes2.resize(np*2);
 		for(int i = 0; i < np; ++i){
 			unsigned prime = gPrimes[i];
-			float fiprime = 1.f / float(prime);
+			uint32_t reciprocal = uint32_t((uint64_t(1) << 32) / uint64_t(prime));
 			gPrimes2[i*2] = prime;
-			memcpy(&gPrimes2[i*2+1], &fiprime, sizeof(float));
+			gPrimes2[i*2+1] = reciprocal;
 		}
 	}
 
