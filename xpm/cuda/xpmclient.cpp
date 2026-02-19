@@ -68,6 +68,10 @@ PrimeMiner::PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, un
   mLSize = LSize;  
 	
 	mBlockSize = 0;
+	mPipelineBatchTarget[0] = 0;
+  mPipelineBatchTarget[1] = 0;
+  mPipelineUnderfillRounds[0] = 0;
+  mPipelineUnderfillRounds[1] = 0;
 	mConfig = {0};
 
   _context = 0;
@@ -144,6 +148,8 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   int computeUnits;
   CUDA_SAFE_CALL(cuDeviceGetAttribute(&computeUnits, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device));
   mBlockSize = computeUnits * 4 * 64;
+  mPipelineBatchTarget[0] = mBlockSize;
+  mPipelineBatchTarget[1] = mBlockSize;
   LOG_F(INFO, "GPU %d: has %d CUs", mID, computeUnits);
   return true;
 }
@@ -206,8 +212,9 @@ void PrimeMiner::FermatDispatch(pipeline_t &fermat,
     CUDA_SAFE_CALL(fermat.buffer[widx].count.copyToDevice(mHMFermatStream));
     
     fermat.bsize = 0;
-    if(count >= mBlockSize){
-      fermat.bsize = count - (count % mBlockSize);
+    const unsigned batchTarget = mPipelineBatchTarget[pipelineIdx] ? mPipelineBatchTarget[pipelineIdx] : mBlockSize;
+    if(count >= batchTarget){
+      fermat.bsize = count - (count % batchTarget);
       {
         // Fermat test setup
         void *arguments[] = {
@@ -445,6 +452,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		// reset if new work
 		if(reset){
       hashes.clear();
+			mPipelineBatchTarget[0] = mBlockSize;
+      mPipelineBatchTarget[1] = mBlockSize;
+			mPipelineUnderfillRounds[0] = 0;
+      mPipelineUnderfillRounds[1] = 0;
 			hashmod.count[0] = 0;
 			fermat320.bsize = 0;
 			fermat320.buffer[0].count[0] = 0;
@@ -706,13 +717,40 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     if (final.count[0] > 0)
       CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
     
+    // adaptive batch target control per pipeline (320/352)
+    uint32_t availableByPipeline[FERMAT_PIPELINES] = {
+      fermat320.buffer[ridx].count[0],
+      fermat352.buffer[ridx].count[0]
+    };
+    for (unsigned p = 0; p < FERMAT_PIPELINES; ++p) {
+      uint32_t avail = availableByPipeline[p];
+      if (avail == 0) {
+        mPipelineUnderfillRounds[p]++;
+      } else if (avail < mPipelineBatchTarget[p]) {
+        mPipelineUnderfillRounds[p]++;
+        if (mPipelineUnderfillRounds[p] >= 3 && mPipelineBatchTarget[p] > mBlockSize/4) {
+          mPipelineBatchTarget[p] = std::max(mBlockSize/4, mPipelineBatchTarget[p]/2);
+          mPipelineUnderfillRounds[p] = 0;
+          LOG_F(INFO, "GPU %d: lower Fermat batch target for pipeline %u to %u (avail=%u)",
+                mID, p, mPipelineBatchTarget[p], avail);
+        }
+      } else {
+        mPipelineUnderfillRounds[p] = 0;
+        if (mPipelineBatchTarget[p] < mBlockSize) {
+          mPipelineBatchTarget[p] = std::min(mBlockSize, mPipelineBatchTarget[p]*2);
+          LOG_F(INFO, "GPU %d: raise Fermat batch target for pipeline %u to %u (avail=%u)",
+                mID, p, mPipelineBatchTarget[p], avail);
+        }
+      }
+    }
+
     // adjust sieves per round
-    if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
-        fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mBlockSize) {
+    if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mPipelineBatchTarget[0] &&
+        fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mPipelineBatchTarget[1]) {
       mSievePerRound = std::min((unsigned)SW, mSievePerRound+1);
       LOG_F(WARNING, "not enough candidates (%u available, must be more than %u",
              std::max(fermat320.buffer[ridx].count[0], fermat352.buffer[ridx].count[0]),
-             mBlockSize);
+             std::max(mPipelineBatchTarget[0], mPipelineBatchTarget[1]));
              
       LOG_F(WARNING, "increase sieves per round to %u", mSievePerRound);
     }
@@ -1443,6 +1481,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         // reset if new work
         if(reset){
             hashes.clear();
+            mPipelineBatchTarget[0] = mBlockSize;
+            mPipelineBatchTarget[1] = mBlockSize;
+            mPipelineUnderfillRounds[0] = 0;
+            mPipelineUnderfillRounds[1] = 0;
             hashmod.count[0] = 0;
             fermat320.bsize = 0;
             fermat320.buffer[0].count[0] = 0;
@@ -1704,13 +1746,40 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         if (final.count[0] > 0)
             CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
         
+        // adaptive batch target control per pipeline (320/352)
+        uint32_t availableByPipeline[FERMAT_PIPELINES] = {
+            fermat320.buffer[ridx].count[0],
+            fermat352.buffer[ridx].count[0]
+        };
+        for (unsigned p = 0; p < FERMAT_PIPELINES; ++p) {
+            uint32_t avail = availableByPipeline[p];
+            if (avail == 0) {
+                mPipelineUnderfillRounds[p]++;
+            } else if (avail < mPipelineBatchTarget[p]) {
+                mPipelineUnderfillRounds[p]++;
+                if (mPipelineUnderfillRounds[p] >= 3 && mPipelineBatchTarget[p] > mBlockSize/4) {
+                    mPipelineBatchTarget[p] = std::max(mBlockSize/4, mPipelineBatchTarget[p]/2);
+                    mPipelineUnderfillRounds[p] = 0;
+                    LOG_F(INFO, "GPU %d: lower Fermat batch target for pipeline %u to %u (avail=%u)",
+                          mID, p, mPipelineBatchTarget[p], avail);
+                }
+            } else {
+                mPipelineUnderfillRounds[p] = 0;
+                if (mPipelineBatchTarget[p] < mBlockSize) {
+                    mPipelineBatchTarget[p] = std::min(mBlockSize, mPipelineBatchTarget[p]*2);
+                    LOG_F(INFO, "GPU %d: raise Fermat batch target for pipeline %u to %u (avail=%u)",
+                          mID, p, mPipelineBatchTarget[p], avail);
+                }
+            }
+        }
+
         // adjust sieves per round
-        if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
-            fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mBlockSize) {
+        if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mPipelineBatchTarget[0] &&
+            fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mPipelineBatchTarget[1]) {
             mSievePerRound = std::min((unsigned)SW, mSievePerRound+1);
             LOG_F(WARNING, "not enough candidates (%u available, must be more than %u",
                     std::max(fermat320.buffer[ridx].count[0], fermat352.buffer[ridx].count[0]),
-                    mBlockSize);
+                    std::max(mPipelineBatchTarget[0], mPipelineBatchTarget[1]));
                     
             LOG_F(WARNING, "increase sieves per round to %u", mSievePerRound);
         }
