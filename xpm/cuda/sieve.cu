@@ -255,6 +255,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
                         uint32_t depth)
 {
   const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint32_t lane = threadIdx.x & 31;
+  const uint32_t activeMask = __activemask();
+  const uint32_t laneMaskLt = (lane == 0) ? 0 : ((1u << lane) - 1);
 
   uint32_t tmp1[WIDTH];
 #pragma unroll
@@ -269,20 +272,46 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp1[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    bool hit = mask != 0xFFFFFFFF;
+    fermat_t info;
+    bool is320 = false;
+    if (hit) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+      is320 = maxSize <= 320;
 
-      fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 0;
       info.hashid = hashid;
-      found[addr] = info;
+    }
+
+    const uint32_t mask320 = __ballot_sync(activeMask, hit && is320);
+    if (mask320) {
+      const uint32_t leader = __ffs(mask320) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[0], __popc(mask320));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && is320) {
+        const uint32_t rank = __popc(mask320 & laneMaskLt);
+        found320[base + rank] = info;
+      }
+    }
+
+    const uint32_t mask352 = __ballot_sync(activeMask, hit && !is320);
+    if (mask352) {
+      const uint32_t leader = __ffs(mask352) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[1], __popc(mask352));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && !is320) {
+        const uint32_t rank = __popc(mask352 & laneMaskLt);
+        found352[base + rank] = info;
+      }
     }
   }
 
@@ -298,20 +327,46 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp2[start+line];
 
-    if (mask != 0xFFFFFFFF) {
+    bool hit = mask != 0xFFFFFFFF;
+    fermat_t info;
+    bool is320 = false;
+    if (hit) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+      is320 = maxSize <= 320;
 
-      fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 1;
       info.hashid = hashid;
-      found[addr] = info;
+    }
+
+    const uint32_t mask320 = __ballot_sync(activeMask, hit && is320);
+    if (mask320) {
+      const uint32_t leader = __ffs(mask320) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[0], __popc(mask320));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && is320) {
+        const uint32_t rank = __popc(mask320 & laneMaskLt);
+        found320[base + rank] = info;
+      }
+    }
+
+    const uint32_t mask352 = __ballot_sync(activeMask, hit && !is320);
+    if (mask352) {
+      const uint32_t leader = __ffs(mask352) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[1], __popc(mask352));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && !is320) {
+        const uint32_t rank = __popc(mask352 & laneMaskLt);
+        found352[base + rank] = info;
+      }
     }
   }
 
@@ -329,20 +384,46 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     if(TARGET & 1u)
       mask |= tmp1[start+TARGET/2];
 
-    if (mask != 0xFFFFFFFF) {
+    bool hit = mask != 0xFFFFFFFF;
+    fermat_t info;
+    bool is320 = false;
+    if (hit) {
       unsigned bit = 31-__clz(~mask);
       unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
       unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+      is320 = maxSize <= 320;
 
-      fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 2;
       info.hashid = hashid;
-      found[addr] = info;
+    }
+
+    const uint32_t mask320 = __ballot_sync(activeMask, hit && is320);
+    if (mask320) {
+      const uint32_t leader = __ffs(mask320) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[0], __popc(mask320));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && is320) {
+        const uint32_t rank = __popc(mask320 & laneMaskLt);
+        found320[base + rank] = info;
+      }
+    }
+
+    const uint32_t mask352 = __ballot_sync(activeMask, hit && !is320);
+    if (mask352) {
+      const uint32_t leader = __ffs(mask352) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(&fcount[1], __popc(mask352));
+      base = __shfl_sync(activeMask, base, leader);
+      if (hit && !is320) {
+        const uint32_t rank = __popc(mask352 & laneMaskLt);
+        found352[base + rank] = info;
+      }
     }
   }
 }
