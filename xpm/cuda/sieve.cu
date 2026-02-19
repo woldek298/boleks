@@ -48,6 +48,9 @@ __global__ void sieve(uint32_t *gsieve_all,
     uint32_t pos = loffset & 0x7FFFFFFF;
 
     poff += 1u << nps;
+    if (!orb)
+      continue;
+
     pos += __umul24((uint32_t)(fentry * fiprime), prime);
       pos -= entry;
     pos += ((int)pos < 0 ? prime : 0);
