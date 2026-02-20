@@ -419,6 +419,9 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
                                    uint32_t temp2_3)
 {
   const uint32_t id = blockIdx.x * blockDim.x + threadIdx.x + nonceOffset;
+  const uint32_t activeMask = __activemask();
+  const uint32_t lane = threadIdx.x & 31u;
+  const uint32_t laneMaskLt = lane ? ((1u << lane) - 1u) : 0u;
   
   uint32_t msg[16];
   msg[0] = merkle;
@@ -459,8 +462,7 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
     state[i] = sha2_pack(state[i]);
   
   if (state[7] & (1u << 31)) {
-    uint32_t count = !(state[0] & 0x1);
-    uint32_t primorialBitField = count;
+    uint32_t primorialBitField = !(state[0] & 0x1);
     state[8] = 0;
     
     {
@@ -469,22 +471,19 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       for (unsigned i = 0; i < 5; i++) {
         unsigned isDivisor = check24(acc, divisors24one[i], multipliers32one[i], offsets32one[i]);
         primorialBitField |= (isDivisor << indexesOne[i]);
-        count += isDivisor;
       }
     }
     
-    unsigned lastBit = 0;
     #pragma unroll    
     for (unsigned i = 0; i < HashPrimorial-5; i++) {
       unsigned isDivisor =
       divisionCheck24(state, 8, divisors24[i], &modulos24[i*11], multipliers32[i], offsets32[i]);
       primorialBitField |= (isDivisor << indexes[i]);
-      lastBit = isDivisor ? i+5 : lastBit;
     }
     
     uint32_t prod13l = 1;
     for (unsigned i = 0; i < 8; i++)
-      prod13l = __umul24(prod13l, select(gPrimes[i], 1u, primorialBitField & (1u << i)));
+      prod13l *= select(gPrimes[i], 1u, primorialBitField & (1u << i));
     prod13l *= select(gPrimes[8], 1u, primorialBitField & (1u << 8));
     
     uint64_t prod13 = prod13l;
@@ -502,22 +501,51 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
     int p15Unique = !(p13isValid & (prod15 == prod13)) & !(p14isValid & (prod15 == prod14));
     int p15isValid = ((64-__clzll(prod15)) < LIMIT15) & p15Unique;
     
-    if (p13isValid) {
-      const uint32_t index = atomicAdd(fcount, 1);
-      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (13u << 16);
-      found[index] = id;
+    const uint32_t packedPrimorial = (primorialBitField & 0xFFFF);
+
+    const uint32_t mask13 = __ballot_sync(activeMask, p13isValid);
+    if (mask13) {
+      const uint32_t leader = __ffs(mask13) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(fcount, __popc(mask13));
+      base = __shfl_sync(activeMask, base, leader);
+      if (p13isValid) {
+        const uint32_t rank = __popc(mask13 & laneMaskLt);
+        const uint32_t index = base + rank;
+        resultPrimorial[index] = packedPrimorial | (13u << 16);
+        found[index] = id;
+      }
     }
-    
-    if (p14isValid) {
-      const uint32_t index = atomicAdd(fcount, 1);
-      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (14u << 16);
-      found[index] = id;
+
+    const uint32_t mask14 = __ballot_sync(activeMask, p14isValid);
+    if (mask14) {
+      const uint32_t leader = __ffs(mask14) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(fcount, __popc(mask14));
+      base = __shfl_sync(activeMask, base, leader);
+      if (p14isValid) {
+        const uint32_t rank = __popc(mask14 & laneMaskLt);
+        const uint32_t index = base + rank;
+        resultPrimorial[index] = packedPrimorial | (14u << 16);
+        found[index] = id;
+      }
     }
-    
-    if (p15isValid) {
-      const uint32_t index = atomicAdd(fcount, 1);
-      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (15u << 16);
-      found[index] = id;
-    }    
+
+    const uint32_t mask15 = __ballot_sync(activeMask, p15isValid);
+    if (mask15) {
+      const uint32_t leader = __ffs(mask15) - 1;
+      uint32_t base = 0;
+      if (lane == leader)
+        base = atomicAdd(fcount, __popc(mask15));
+      base = __shfl_sync(activeMask, base, leader);
+      if (p15isValid) {
+        const uint32_t rank = __popc(mask15 & laneMaskLt);
+        const uint32_t index = base + rank;
+        resultPrimorial[index] = packedPrimorial | (15u << 16);
+        found[index] = id;
+      }
+    }
   }
 }
