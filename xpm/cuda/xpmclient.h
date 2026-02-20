@@ -124,6 +124,11 @@ public:
 
 class PrimeMiner {
 public:
+	enum FermatQueuePolicy {
+    FermatQueuePolicyBalanced = 0,
+    FermatQueuePolicyBacklog,
+    FermatQueuePolicyWeighted
+  };
 	
 	struct block_t {	
 		int version;
@@ -173,6 +178,12 @@ public:
     cudaBuffer<uint8_t> output;
     info_t buffer[2];
   };
+
+  struct fermat_queue_t {
+    pipeline_t *pipeline;
+    unsigned pipelineIdx;
+    CUfunction kernel;
+  };
 	
   PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, unsigned depth, unsigned LSize);
 	~PrimeMiner();
@@ -181,6 +192,13 @@ public:
 	
 	static void InvokeMining(void *args, void *ctx, void *pipe);
   config_t getConfig() { return mConfig; }
+  void SetFermatSchedulerKnobs(FermatQueuePolicy policy,
+                               unsigned weight320,
+                               unsigned weight352,
+                               unsigned blockSize320,
+                               unsigned blockSize352,
+                               unsigned orderFirst,
+                               unsigned orderSecond);
 	
 	bool MakeExit;
 	
@@ -196,7 +214,17 @@ private:
                       uint64_t &testCount,
                       uint64_t &fermatCount,
                       CUfunction fermatKernel,
-                      unsigned sievePerRound);  
+                      unsigned dispatchBlockSize,
+                      unsigned sievePerRound);
+
+  void DispatchFermatQueues(fermat_queue_t queues[FERMAT_PIPELINES],
+                            cudaBuffer<fermat_t> sieveBuffers[SW][FERMAT_PIPELINES][2],
+                            cudaBuffer<uint32_t> candidatesCountBuffers[SW][2],
+                            int ridx,
+                            int widx,
+                            uint64_t &testCount,
+                            uint64_t &fermatCount,
+                            unsigned sievePerRound);
     friend class MiningNode;
 	void Mining(void *ctx, void *pipe);
   void SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit);
@@ -207,8 +235,12 @@ private:
 	config_t mConfig;
   unsigned mSievePerRound;
 	unsigned mBlockSize;
+	unsigned mFermatBlockSize[FERMAT_PIPELINES];
+	unsigned mFermatQueueWeights[FERMAT_PIPELINES];
+	unsigned mFermatQueueOrder[FERMAT_PIPELINES];
+	FermatQueuePolicy mFermatQueuePolicy;
 	uint32_t mDepth;
-  unsigned mLSize;  
+  unsigned mLSize;
 
   CUcontext _context;
   CUstream mSieveStream;
@@ -220,8 +252,11 @@ private:
 	CUfunction mSieveSearch;
 	CUfunction mFermatSetup;
 	CUfunction mFermatKernel352;
-  CUfunction mFermatKernel320;  
+  CUfunction mFermatKernel320;
+	CUfunction mFermatKernel352LR;
+  CUfunction mFermatKernel320LR;
 	CUfunction mFermatCheck;
+  bool mUseLowRegFermatKernels;
   info_t final;
   cudaBuffer<uint32_t> hashBuf;
 };
