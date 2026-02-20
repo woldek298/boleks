@@ -67,12 +67,12 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     pos = normalizePos(pos, prime, entry, reciprocal);
 
-    pos += __umul24(lpoff, prime);
+    pos += lpoff * prime;
 
     uint4 vpos = {pos,
-                  pos + __umul24(var, prime),
-                  pos + __umul24(var*2, prime),
-                  pos + __umul24(var*3, prime)};
+                  pos + var * prime,
+                  pos + (var * 2u) * prime,
+                  pos + (var * 3u) * prime};
 
     if (var*4 >= 32) {
       uint32_t *s1 = &sieve[vpos.x >> 5];
