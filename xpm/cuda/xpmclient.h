@@ -173,12 +173,6 @@ public:
     cudaBuffer<uint8_t> output;
     info_t buffer[2];
   };
-
-  struct fermat_queue_t {
-    pipeline_t *pipeline;
-    unsigned pipelineIdx;
-    CUfunction kernel;
-  };
 	
   PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, unsigned depth, unsigned LSize);
 	~PrimeMiner();
@@ -202,16 +196,7 @@ private:
                       uint64_t &testCount,
                       uint64_t &fermatCount,
                       CUfunction fermatKernel,
-                      unsigned sievePerRound);
-
-  void DispatchFermatQueues(fermat_queue_t queues[FERMAT_PIPELINES],
-                            cudaBuffer<fermat_t> sieveBuffers[SW][FERMAT_PIPELINES][2],
-                            cudaBuffer<uint32_t> candidatesCountBuffers[SW][2],
-                            int ridx,
-                            int widx,
-                            uint64_t &testCount,
-                            uint64_t &fermatCount,
-                            unsigned sievePerRound);
+                      unsigned sievePerRound);  
     friend class MiningNode;
 	void Mining(void *ctx, void *pipe);
   void SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit);
@@ -235,11 +220,8 @@ private:
 	CUfunction mSieveSearch;
 	CUfunction mFermatSetup;
 	CUfunction mFermatKernel352;
-  CUfunction mFermatKernel320;
-	CUfunction mFermatKernel352LR;
-  CUfunction mFermatKernel320LR;
+  CUfunction mFermatKernel320;  
 	CUfunction mFermatCheck;
-  bool mUseLowRegFermatKernels;
   info_t final;
   cudaBuffer<uint32_t> hashBuf;
 };

@@ -462,8 +462,7 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
     state[i] = sha2_pack(state[i]);
   
   if (state[7] & (1u << 31)) {
-    uint32_t count = !(state[0] & 0x1);
-    uint32_t primorialBitField = count;
+    uint32_t primorialBitField = !(state[0] & 0x1);
     state[8] = 0;
     
     {
@@ -472,17 +471,14 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       for (unsigned i = 0; i < 5; i++) {
         unsigned isDivisor = check24(acc, divisors24one[i], multipliers32one[i], offsets32one[i]);
         primorialBitField |= (isDivisor << indexesOne[i]);
-        count += isDivisor;
       }
     }
     
-    unsigned lastBit = 0;
     #pragma unroll    
     for (unsigned i = 0; i < HashPrimorial-5; i++) {
       unsigned isDivisor =
       divisionCheck24(state, 8, divisors24[i], &modulos24[i*11], multipliers32[i], offsets32[i]);
       primorialBitField |= (isDivisor << indexes[i]);
-      lastBit = isDivisor ? i+5 : lastBit;
     }
     
     uint32_t prod13l = 1;

@@ -79,11 +79,8 @@ PrimeMiner::PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, un
 	mSieveSearch = 0;
 	mFermatSetup = 0;
 	mFermatKernel352 = 0;
-  mFermatKernel320 = 0;
-	mFermatKernel352LR = 0;
-  mFermatKernel320LR = 0;
-	mFermatCheck = 0;
-  mUseLowRegFermatKernels = false;
+  mFermatKernel320 = 0;  
+	mFermatCheck = 0;  
 	
 	MakeExit = false;
 	
@@ -109,14 +106,7 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatSetup, module, "_Z12setup_fermatPjPK8fermat_tS_"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatKernel352, module, "_Z13fermat_kernelPhPKj"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatKernel320, module, "_Z16fermat_kernel320PhPKj"));
-  CUresult lr352 = cuModuleGetFunction(&mFermatKernel352LR, module, "fermat_kernel_lr");
-  CUresult lr320 = cuModuleGetFunction(&mFermatKernel320LR, module, "fermat_kernel320_lr");
-  mUseLowRegFermatKernels = (lr352 == CUDA_SUCCESS) && (lr320 == CUDA_SUCCESS);
-  if (mUseLowRegFermatKernels)
-    LOG_F(INFO, "GPU %d: low-register Fermat kernels enabled", mID);
-  else
-    LOG_F(INFO, "GPU %d: low-register Fermat kernels unavailable, using default variants", mID);
-  CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatCheck, module, "_Z12check_fermatP8fermat_tPjS0_S1_PKhPKS_j"));
+  CUDA_SAFE_CALL(cuModuleGetFunction(&mFermatCheck, module, "_Z12check_fermatP8fermat_tPjS0_S1_PKhPKS_j"));  
   
   CUDA_SAFE_CALL(cuStreamCreate(&mSieveStream, CU_STREAM_NON_BLOCKING));
   CUDA_SAFE_CALL(cuStreamCreate(&mHMFermatStream, CU_STREAM_NON_BLOCKING));
@@ -206,7 +196,7 @@ void PrimeMiner::FermatDispatch(pipeline_t &fermat,
     CUDA_SAFE_CALL(fermat.buffer[widx].count.copyToDevice(mHMFermatStream));
     
     fermat.bsize = 0;
-    if(count >= mBlockSize){
+    if(count > mBlockSize){                 
       fermat.bsize = count - (count % mBlockSize);
       {
         // Fermat test setup
@@ -258,29 +248,6 @@ void PrimeMiner::FermatDispatch(pipeline_t &fermat,
       // printf(" * warning: no enough candidates available (pipeline %u)\n", pipelineIdx);
     }
     // printf("fermat: total of %d infos, bsize = %d\n", count, fermat.bsize);
-  }
-}
-
-void PrimeMiner::DispatchFermatQueues(fermat_queue_t queues[FERMAT_PIPELINES],
-                                      cudaBuffer<fermat_t> sieveBuffers[SW][FERMAT_PIPELINES][2],
-                                      cudaBuffer<uint32_t> candidatesCountBuffers[SW][2],
-                                      int ridx,
-                                      int widx,
-                                      uint64_t &testCount,
-                                      uint64_t &fermatCount,
-                                      unsigned sievePerRound)
-{
-  for (unsigned q = 0; q < FERMAT_PIPELINES; ++q) {
-    FermatDispatch(*queues[q].pipeline,
-                   sieveBuffers,
-                   candidatesCountBuffers,
-                   queues[q].pipelineIdx,
-                   ridx,
-                   widx,
-                   testCount,
-                   fermatCount,
-                   queues[q].kernel,
-                   sievePerRound);
   }
 }
 
@@ -565,9 +532,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
       int numhash = ((int)(16*mSievePerRound) - (int)hashes.remaining()) * numHashCoeff;
 
 			if(numhash > 0){
-        unsigned remainder = numhash % mLSize;
+        const int remainder = numhash % int(mLSize);
         if (remainder)
-          numhash += mLSize - remainder;
+          numhash += int(mLSize) - remainder;
 				if(blockheader.nonce > (1u << 31)){
 					blockheader.time += mThreads;
 					blockheader.nonce = 1;
@@ -702,18 +669,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		
     final.count[0] = 0;
     CUDA_SAFE_CALL(final.count.copyToDevice(mHMFermatStream));
-    fermat_queue_t queues[FERMAT_PIPELINES] = {
-      { &fermat320, 0, mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320 },
-      { &fermat352, 1, mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352 }
-    };
-    DispatchFermatQueues(queues,
-                         sieveBuffers,
-                         candidatesCountBuffers,
-                         ridx,
-                         widx,
-                         testCount,
-                         fermatCount,
-                         mSievePerRound);
+    FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
+    FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
 
     // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
     // syncronize our stream one time per iteration
@@ -896,9 +853,9 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		gPrimes2.resize(np*2);
 		for(int i = 0; i < np; ++i){
 			unsigned prime = gPrimes[i];
-			uint32_t reciprocal = uint32_t((uint64_t(1) << 32) / uint64_t(prime));
+			float fiprime = 1.f / float(prime);
 			gPrimes2[i*2] = prime;
-			gPrimes2[i*2+1] = reciprocal;
+			memcpy(&gPrimes2[i*2+1], &fiprime, sizeof(float));
 		}
 	}
 
@@ -1574,7 +1531,9 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
             int numhash = ((int)(16*mSievePerRound) - (int)hashes.remaining()) * numHashCoeff;
 
             if(numhash > 0){
-                numhash += mLSize - numhash % mLSize;
+                const int remainder = numhash % int(mLSize);
+                if (remainder)
+                    numhash += int(mLSize) - remainder;
                 if(blockheader.nonce > (1u << 31)){
                     blockheader.time += mThreads;
                     blockheader.nonce = 1;
@@ -1708,18 +1667,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         final.count[0] = 0;
         CUDA_SAFE_CALL(final.count.copyToDevice(mHMFermatStream));
-        fermat_queue_t queues[FERMAT_PIPELINES] = {
-            { &fermat320, 0, mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320 },
-            { &fermat352, 1, mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352 }
-        };
-        DispatchFermatQueues(queues,
-                             sieveBuffers,
-                             candidatesCountBuffers,
-                             ridx,
-                             widx,
-                             testCount,
-                             fermatCount,
-                             mSievePerRound);
+        FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
+        FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
 
         // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
         // syncronize our stream one time per iteration
