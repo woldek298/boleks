@@ -66,6 +66,25 @@ devices =        ["1", "1", "1", "1", "1", "1", "1", "1"];
 # sieves per round value, default = 5
 sievePerRound = ["5", "5", "5", "5", "5", "5", "5", "5"];
 
+# Fermat queue scheduler policy per GPU:
+#  - "balanced" (default): fixed queue order from fermatQueueOrder
+#  - "backlog": process queue with bigger backlog first each loop
+#  - "weighted": process queues using fermatQueueWeights ratio
+fermatQueuePolicy = ["balanced", "balanced", "balanced", "balanced", "balanced", "balanced", "balanced", "balanced"];
+
+# Queue weights per GPU for weighted policy, format "w320,w352" (default: "1,1")
+fermatQueueWeights = ["1,1", "1,1", "1,1", "1,1", "1,1", "1,1", "1,1", "1,1"];
+
+# Optional Fermat dispatch block size override per GPU for 320/352 pipelines.
+# 0 means auto (fallback to internal mBlockSize heuristic)
+fermatBlockSize320 = ["0", "0", "0", "0", "0", "0", "0", "0"];
+fermatBlockSize352 = ["0", "0", "0", "0", "0", "0", "0", "0"];
+
+# Queue order per GPU, format "first,second":
+#  - 0 = 320-bit queue
+#  - 1 = 352-bit queue
+fermatQueueOrder = ["0,1", "0,1", "0,1", "0,1", "0,1", "0,1", "0,1", "0,1"];
+
 # -1 means don't change; not supported for NVidia
 corefreq =       ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"];
 memfreq =        ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"];
