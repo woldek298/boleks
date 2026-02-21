@@ -349,8 +349,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 	}
   
   CUDA_SAFE_CALL(hashmod.midstate.init(8, false));
-  CUDA_SAFE_CALL(hashmod.found.init(128, false));
-  CUDA_SAFE_CALL(hashmod.primorialBitField.init(128, false));
+  CUDA_SAFE_CALL(hashmod.found.init(256, false));
+  CUDA_SAFE_CALL(hashmod.primorialBitField.init(256, false));
   CUDA_SAFE_CALL(hashmod.count.init(1, false));
   CUDA_SAFE_CALL(hashBuf.init(PW*mConfig.N, false));
 	
@@ -587,7 +587,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		int widx = ridx xor 1;
 		
 		// sieve dispatch    
-      for (unsigned i = 0; i < mSievePerRound; i++) {
+	      unsigned dispatchedSieves = 0;
+	      for (unsigned i = 0; i < mSievePerRound; i++) {
         if(hashes.empty()){
           if (!reset) {
             numHashCoeff += 32768;
@@ -662,7 +663,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
                                         256, 1, 1,
                                         0, mSieveStream, arguments, 0));
           
-          CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream)); 
+	          CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream));
+	          dispatchedSieves++;
 				}
 			}
 		
@@ -688,7 +690,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
                    testCount,
                    fermatCount,
                    mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320,
-                   mSievePerRound);
+                   dispatchedSieves);
 
     FermatDispatch(fermat352,
                    sieveBuffers,
@@ -699,17 +701,18 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
                    testCount,
                    fermatCount,
                    mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352,
-                   mSievePerRound);
+                   dispatchedSieves);
 
     // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
     // syncronize our stream one time per iteration
     // sieve stream is first because it much bigger
-    CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent)); 
+	    if (dispatchedSieves)
+	      CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent));
 #ifdef __WINDOWS__  
     CUDA_SAFE_CALL(cuCtxSynchronize());
 #endif
-    for (unsigned i = 0; i < mSievePerRound; i++)
-      CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
+	    for (unsigned i = 0; i < dispatchedSieves; i++)
+	      CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
     
     // Synchronize Fermat stream, copy counters first and fetch payloads only when needed
     CUDA_SAFE_CALL(hashmod.count.copyToHost(mHMFermatStream));
@@ -1373,8 +1376,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
     }
 
     CUDA_SAFE_CALL(hashmod.midstate.init(8, false));
-    CUDA_SAFE_CALL(hashmod.found.init(128, false));
-    CUDA_SAFE_CALL(hashmod.primorialBitField.init(128, false));
+    CUDA_SAFE_CALL(hashmod.found.init(256, false));
+    CUDA_SAFE_CALL(hashmod.primorialBitField.init(256, false));
     CUDA_SAFE_CALL(hashmod.count.init(1, false));
     CUDA_SAFE_CALL(hashBuf.init(PW*mConfig.N, false));
     
@@ -1603,6 +1606,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         int widx = ridx xor 1;
         
         // sieve dispatch    
+        unsigned dispatchedSieves = 0;
         for (unsigned i = 0; i < mSievePerRound; i++) {
             if(hashes.empty()){
                 if (!reset) {
@@ -1678,7 +1682,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                                                 256, 1, 1,
                                                 0, mSieveStream, arguments, 0));
                 
-                CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream)); 
+                CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream));
+                dispatchedSieves++;
             }
         }
         
@@ -1703,7 +1708,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                        testCount,
                        fermatCount,
                        mUseLowRegFermatKernels ? mFermatKernel320LR : mFermatKernel320,
-                       mSievePerRound);
+                       dispatchedSieves);
 
         FermatDispatch(fermat352,
                        sieveBuffers,
@@ -1714,16 +1719,17 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                        testCount,
                        fermatCount,
                        mUseLowRegFermatKernels ? mFermatKernel352LR : mFermatKernel352,
-                       mSievePerRound);
+                       dispatchedSieves);
 
         // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
         // syncronize our stream one time per iteration
         // sieve stream is first because it much bigger
-        CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent)); 
+        if (dispatchedSieves)
+          CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent));
     #ifdef __WINDOWS__  
         CUDA_SAFE_CALL(cuCtxSynchronize());
     #endif
-        for (unsigned i = 0; i < mSievePerRound; i++)
+        for (unsigned i = 0; i < dispatchedSieves; i++)
         CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
         
         // Synchronize Fermat stream, copy counters first and fetch payloads only when needed
