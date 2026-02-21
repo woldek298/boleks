@@ -173,7 +173,7 @@ public:
     cudaBuffer<uint8_t> output;
     info_t buffer[2];
   };
-	
+
   PrimeMiner(unsigned id, unsigned threads, unsigned sievePerRound, unsigned depth, unsigned LSize);
 	~PrimeMiner();
 	
@@ -196,7 +196,8 @@ private:
                       uint64_t &testCount,
                       uint64_t &fermatCount,
                       CUfunction fermatKernel,
-                      unsigned sievePerRound);  
+                      unsigned sievePerRound);
+
     friend class MiningNode;
 	void Mining(void *ctx, void *pipe);
   void SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit);
@@ -220,8 +221,11 @@ private:
 	CUfunction mSieveSearch;
 	CUfunction mFermatSetup;
 	CUfunction mFermatKernel352;
-  CUfunction mFermatKernel320;  
+  CUfunction mFermatKernel320;
+	CUfunction mFermatKernel352LR;
+  CUfunction mFermatKernel320LR;
 	CUfunction mFermatCheck;
+  bool mUseLowRegFermatKernels;
   info_t final;
   cudaBuffer<uint32_t> hashBuf;
 };
