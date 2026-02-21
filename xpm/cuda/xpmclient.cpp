@@ -319,6 +319,16 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 	CPrimalityTestParams testParams;
 	std::vector<fermat_t> candis;
   unsigned numHashCoeff = 32768;
+  bool pendingCopy = false;
+  unsigned pendingDispatchedSieves = 0;
+  CUevent hashmodStart, hashmodStop, sieveStart, sieveStop, fermatStart, fermatStop;
+  CUDA_SAFE_CALL(cuEventCreate(&hashmodStart, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&hashmodStop, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&sieveStart, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&sieveStop, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&fermatStart, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&fermatStop, CU_EVENT_DEFAULT));
+  bool hasHashmodEvent = false, hasSieveEvent = false, hasFermatEvent = false;
 
   cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
   cudaBuffer<uint32_t> primeBuf2[maxHashPrimorial];
@@ -489,6 +499,52 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
       CUDA_SAFE_CALL(hashmod.count.memsetDevice(0, 1, mHMFermatStream));
 		}
 		
+		if (pendingCopy) {
+      auto telemetryCopySyncStart = std::chrono::steady_clock::now();
+      if (pendingDispatchedSieves)
+        CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+
+      CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+
+      if (hashmod.count[0]) {
+        unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+        CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
+        CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
+      }
+
+      if (final.count[0]) {
+        unsigned finalCount = std::min((unsigned)final.count[0], (unsigned)final.info._size);
+        CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
+      }
+
+      if (hashmod.count[0] || final.count[0])
+        CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+#ifdef __WINDOWS__
+      CUDA_SAFE_CALL(cuCtxSynchronize());
+#endif
+      if (hasHashmodEvent) {
+        float ms = 0.0f;
+        CUDA_SAFE_CALL(cuEventElapsedTime(&ms, hashmodStart, hashmodStop));
+        telemetryHashmodKernelUs += (uint64_t)(ms * 1000.0f);
+        hasHashmodEvent = false;
+      }
+      if (hasSieveEvent) {
+        float ms = 0.0f;
+        CUDA_SAFE_CALL(cuEventElapsedTime(&ms, sieveStart, sieveStop));
+        telemetrySieveUs += (uint64_t)(ms * 1000.0f);
+        hasSieveEvent = false;
+      }
+      if (hasFermatEvent) {
+        float ms = 0.0f;
+        CUDA_SAFE_CALL(cuEventElapsedTime(&ms, fermatStart, fermatStop));
+        telemetryFermatUs += (uint64_t)(ms * 1000.0f);
+        hasFermatEvent = false;
+      }
+      telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
+      pendingCopy = false;
+      pendingDispatchedSieves = 0;
+    }
+
 		// hashmod fetch & dispatch
 		{
 // 			printf("got %d new hashes\n", hashmod.count[0]); fflush(stdout);
@@ -587,12 +643,13 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
           &precalcData.temp2_3
         };
         
-        auto telemetryHashmodKernelStart = std::chrono::steady_clock::now();
+        CUDA_SAFE_CALL(cuEventRecord(hashmodStart, mHMFermatStream));
         CUDA_SAFE_CALL(cuLaunchKernel(mHashMod,
                                       numhash/mLSize, 1, 1,                                
                                       mLSize, 1, 1,
                                       0, mHMFermatStream, arguments, 0));
-        telemetryHashmodKernelUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryHashmodKernelStart).count();
+        CUDA_SAFE_CALL(cuEventRecord(hashmodStop, mHMFermatStream));
+        hasHashmodEvent = true;
         
 				blockheader.nonce += numhash;
 			}
@@ -601,9 +658,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		int ridx = iteration % 2;
 		int widx = ridx xor 1;
 		
-		auto telemetrySieveStart = std::chrono::steady_clock::now();
 		// sieve dispatch    
       unsigned dispatchedSieves = 0;
+      CUDA_SAFE_CALL(cuEventRecord(sieveStart, mSieveStream));
       for (unsigned i = 0; i < mSievePerRound; i++) {
         if(hashes.empty()){
           if (!reset) {
@@ -682,7 +739,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
           dispatchedSieves = i + 1;
 				}
 			}
-			telemetrySieveUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetrySieveStart).count();
+			if (dispatchedSieves) {
+			  CUDA_SAFE_CALL(cuEventRecord(sieveStop, mSieveStream));
+			  hasSieveEvent = true;
+			}
 		
     
 		// get candis
@@ -697,41 +757,23 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		
     final.count[0] = 0;
     CUDA_SAFE_CALL(final.count.memsetDevice(0, 1, mHMFermatStream));
-    auto telemetryFermatStart = std::chrono::steady_clock::now();
+    CUDA_SAFE_CALL(cuEventRecord(fermatStart, mHMFermatStream));
     FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
     FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
-    telemetryFermatUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryFermatStart).count();
+    CUDA_SAFE_CALL(cuEventRecord(fermatStop, mHMFermatStream));
+    hasFermatEvent = true;
 
-    auto telemetryCopySyncStart = std::chrono::steady_clock::now();
-    // Copy counts first, then transfer payload buffers only when needed.
+    // N+1 pipeline: only enqueue async count copies for next iteration consumption.
     for (unsigned i = 0; i < dispatchedSieves; i++)
       CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(2, mSieveStream));
-    if (dispatchedSieves)
-      CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
 
     CUDA_SAFE_CALL(hashmod.count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
-    CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
 
-    if (hashmod.count[0]) {
-      unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
-      CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
-      CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
-    }
-
-    if (final.count[0]) {
-      unsigned finalCount = std::min((unsigned)final.count[0], (unsigned)final.info._size);
-      CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
-    }
-
-    if (hashmod.count[0] || final.count[0])
-      CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
-#ifdef __WINDOWS__
-    CUDA_SAFE_CALL(cuCtxSynchronize());
-#endif
-    telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
+    pendingCopy = true;
+    pendingDispatchedSieves = dispatchedSieves;
     
     // adjust sieves per round
     if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
@@ -1364,6 +1406,16 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
     CPrimalityTestParams testParams;
     std::vector<fermat_t> candis;
     unsigned numHashCoeff = 32768;
+    bool pendingCopy = false;
+    unsigned pendingDispatchedSieves = 0;
+    CUevent hashmodStart, hashmodStop, sieveStart, sieveStop, fermatStart, fermatStop;
+    CUDA_SAFE_CALL(cuEventCreate(&hashmodStart, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&hashmodStop, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&sieveStart, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&sieveStop, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&fermatStart, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&fermatStop, CU_EVENT_DEFAULT));
+    bool hasHashmodEvent = false, hasSieveEvent = false, hasFermatEvent = false;
 
     cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
     cudaBuffer<uint32_t> primeBuf2[maxHashPrimorial];
@@ -1530,6 +1582,52 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
             CUDA_SAFE_CALL(hashmod.count.memsetDevice(0, 1, mHMFermatStream));
         }
         
+        if (pendingCopy) {
+            auto telemetryCopySyncStart = std::chrono::steady_clock::now();
+            if (pendingDispatchedSieves)
+                CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+
+            CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+
+            if (hashmod.count[0]) {
+                unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+                CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
+                CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
+            }
+
+            if (final.count[0]) {
+                unsigned finalCount = std::min((unsigned)final.count[0], (unsigned)final.info._size);
+                CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
+            }
+
+            if (hashmod.count[0] || final.count[0])
+                CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+#ifdef __WINDOWS__
+            CUDA_SAFE_CALL(cuCtxSynchronize());
+#endif
+            if (hasHashmodEvent) {
+                float ms = 0.0f;
+                CUDA_SAFE_CALL(cuEventElapsedTime(&ms, hashmodStart, hashmodStop));
+                telemetryHashmodKernelUs += (uint64_t)(ms * 1000.0f);
+                hasHashmodEvent = false;
+            }
+            if (hasSieveEvent) {
+                float ms = 0.0f;
+                CUDA_SAFE_CALL(cuEventElapsedTime(&ms, sieveStart, sieveStop));
+                telemetrySieveUs += (uint64_t)(ms * 1000.0f);
+                hasSieveEvent = false;
+            }
+            if (hasFermatEvent) {
+                float ms = 0.0f;
+                CUDA_SAFE_CALL(cuEventElapsedTime(&ms, fermatStart, fermatStop));
+                telemetryFermatUs += (uint64_t)(ms * 1000.0f);
+                hasFermatEvent = false;
+            }
+            telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
+            pendingCopy = false;
+            pendingDispatchedSieves = 0;
+        }
+
         // hashmod fetch & dispatch
         {
             auto telemetryCPUHashmodPostStart = std::chrono::steady_clock::now();
@@ -1626,12 +1724,13 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                     &precalcData.temp2_3
                 };
             
-                auto telemetryHashmodKernelStart = std::chrono::steady_clock::now();
+                CUDA_SAFE_CALL(cuEventRecord(hashmodStart, mHMFermatStream));
                 CUDA_SAFE_CALL(cuLaunchKernel(mHashMod,
                                             numhash/mLSize, 1, 1,
                                             mLSize, 1, 1,
                                             0, mHMFermatStream, arguments, 0));
-                telemetryHashmodKernelUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryHashmodKernelStart).count();
+                CUDA_SAFE_CALL(cuEventRecord(hashmodStop, mHMFermatStream));
+                hasHashmodEvent = true;
                 
                 blockheader.nonce += numhash;
             }
@@ -1640,9 +1739,9 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         int ridx = iteration % 2;
         int widx = ridx xor 1;
         
-        auto telemetrySieveStart = std::chrono::steady_clock::now();
         // sieve dispatch    
         unsigned dispatchedSieves = 0;
+        CUDA_SAFE_CALL(cuEventRecord(sieveStart, mSieveStream));
         for (unsigned i = 0; i < mSievePerRound; i++) {
             if(hashes.empty()){
                 if (!reset) {
@@ -1721,7 +1820,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 dispatchedSieves = i + 1;
             }
         }
-        telemetrySieveUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetrySieveStart).count();
+        if (dispatchedSieves) {
+          CUDA_SAFE_CALL(cuEventRecord(sieveStop, mSieveStream));
+          hasSieveEvent = true;
+        }
         
     
         // get candis
@@ -1735,41 +1837,23 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         final.count[0] = 0;
         CUDA_SAFE_CALL(final.count.memsetDevice(0, 1, mHMFermatStream));
-        auto telemetryFermatStart = std::chrono::steady_clock::now();
+        CUDA_SAFE_CALL(cuEventRecord(fermatStart, mHMFermatStream));
         FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
         FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
-        telemetryFermatUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryFermatStart).count();
+        CUDA_SAFE_CALL(cuEventRecord(fermatStop, mHMFermatStream));
+        hasFermatEvent = true;
 
-        auto telemetryCopySyncStart = std::chrono::steady_clock::now();
-        // Copy counts first, then transfer payload buffers only when needed.
+        // N+1 pipeline: only enqueue async count copies for next iteration consumption.
         for (unsigned i = 0; i < dispatchedSieves; i++)
           CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(2, mSieveStream));
-        if (dispatchedSieves)
-          CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
 
         CUDA_SAFE_CALL(hashmod.count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
-        CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
 
-        if (hashmod.count[0]) {
-          unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
-          CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
-          CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
-        }
-
-        if (final.count[0]) {
-          unsigned finalCount = std::min((unsigned)final.count[0], (unsigned)final.info._size);
-          CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
-        }
-
-        if (hashmod.count[0] || final.count[0])
-          CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
-    #ifdef __WINDOWS__
-        CUDA_SAFE_CALL(cuCtxSynchronize());
-    #endif
-        telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
+        pendingCopy = true;
+        pendingDispatchedSieves = dispatchedSieves;
 
         // adjust sieves per round
         if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
