@@ -24,6 +24,7 @@ extern "C" {
 #include <fstream>
 #include <set>
 #include <memory>
+#include <unordered_map>
 #include <chrono>
 #if defined(__GXX_EXPERIMENTAL_CXX0X__) && (__cplusplus < 201103L)
 #define steady_clock monotonic_clock
@@ -301,6 +302,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 	const unsigned mPrimorial = 13;
 	uint64_t fermatCount = 1;
 	uint64_t primeCount = 1;
+	uint64_t hashmodDropped = 0;
+	std::unordered_map<uint32_t, mpz_class> primorialDivisorCache;
 	
 	time_t time1 = time(0);
 	time_t time2 = time(0);
@@ -413,6 +416,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 			elapsed = currtime - time2;
 			if(elapsed > 15){
 				stats.fps = testCount / elapsed;
+				if (hashmodDropped)
+				  LOG_F(WARNING, "GPU %d: hashmod overflow dropped %llu entries", mID, (unsigned long long)hashmodDropped);
 				time2 = currtime;
 				testCount = 0;
 			}
@@ -479,7 +484,13 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		// hashmod fetch & dispatch
 		{
 // 			printf("got %d new hashes\n", hashmod.count[0]); fflush(stdout);
-			for(unsigned i = 0; i < hashmod.count[0]; ++i) {
+			primorialDivisorCache.clear();
+			const unsigned hashmodCapacity = hashmod.found._size;
+			const unsigned hashmodCount = hashmod.count[0];
+			const unsigned hashmodCountCapped = std::min(hashmodCount, hashmodCapacity);
+			if (hashmodCount > hashmodCapacity)
+			  hashmodDropped += (hashmodCount - hashmodCapacity);
+			for(unsigned i = 0; i < hashmodCountCapped; ++i) {
 				hash_t hash;
 				hash.iter = iteration;
 				hash.time = blockheader.time;
@@ -492,12 +503,17 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
             realPrimorial *= gPrimes[j];
         }      
         
-        mpz_class mpzRealPrimorial;        
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);            
-        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
-        unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);      
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);        
+	        mpz_class mpzRealPrimorial;
+	        auto cacheIt = primorialDivisorCache.find(primorialBitField);
+	        if (cacheIt == primorialDivisorCache.end()) {
+	          mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
+	          cacheIt = primorialDivisorCache.emplace(primorialBitField, mpzRealPrimorial).first;
+	        }
+	        mpzRealPrimorial = cacheIt->second;
+	        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
+	        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+	        unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);
+
 				
 				block_t b = blockheader;
 				b.nonce = hash.nonce;
@@ -1328,6 +1344,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
     const unsigned mPrimorial = 13;
     uint64_t fermatCount = 1;
     uint64_t primeCount = 1;
+    uint64_t hashmodDropped = 0;
+    std::unordered_map<uint32_t, mpz_class> primorialDivisorCache;
     
     time_t time1 = time(0);
     time_t time2 = time(0);
@@ -1430,6 +1448,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
             elapsed = currtime - time2;
             if(elapsed > 15){
                 stats.fps = testCount / elapsed;
+                if (hashmodDropped)
+                  LOG_F(WARNING, "GPU %d: hashmod overflow dropped %llu entries", mID, (unsigned long long)hashmodDropped);
                 time2 = currtime;
                 testCount = 0;
             }
@@ -1501,7 +1521,13 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         // hashmod fetch & dispatch
         {
-            for(unsigned i = 0; i < hashmod.count[0]; ++i) {
+            primorialDivisorCache.clear();
+            const unsigned hashmodCapacity = hashmod.found._size;
+            const unsigned hashmodCount = hashmod.count[0];
+            const unsigned hashmodCountCapped = std::min(hashmodCount, hashmodCapacity);
+            if (hashmodCount > hashmodCapacity)
+                hashmodDropped += (hashmodCount - hashmodCapacity);
+            for(unsigned i = 0; i < hashmodCountCapped; ++i) {
                 hash_t hash;
                 hash.iter = iteration;
                 hash.time = blockheader.time;
@@ -1514,12 +1540,17 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                         realPrimorial *= gPrimes[j];
                 }      
                 
-                mpz_class mpzRealPrimorial;        
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
+                mpz_class mpzRealPrimorial;
+                auto cacheIt = primorialDivisorCache.find(primorialBitField);
+                if (cacheIt == primorialDivisorCache.end()) {
+                    mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
+                    cacheIt = primorialDivisorCache.emplace(primorialBitField, mpzRealPrimorial).first;
+                }
+                mpzRealPrimorial = cacheIt->second;
                 primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
                 mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
                 unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
+
                         
                 block_t b = blockheader;
                 b.nonce = hash.nonce;

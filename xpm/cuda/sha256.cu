@@ -13,6 +13,7 @@ __constant__ uint32_t k[] = {
 __constant__ uint32_t h_init[] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
 
 #define HashPrimorial 16
+#define HASHMOD_OUTPUT_MAX 256u
 
 #define Zrotr(a, b) ((a << b) | (a >> (32 - b)))
 #define Ch(x, y, z) (z ^ (x & (y ^ z)))
@@ -510,11 +511,14 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       if (lane == leader)
         base = atomicAdd(fcount, __popc(mask13));
       base = __shfl_sync(activeMask, base, leader);
+      const uint32_t available = (base < HASHMOD_OUTPUT_MAX) ? (HASHMOD_OUTPUT_MAX - base) : 0;
       if (p13isValid) {
         const uint32_t rank = __popc(mask13 & laneMaskLt);
-        const uint32_t index = base + rank;
-        resultPrimorial[index] = packedPrimorial | (13u << 16);
-        found[index] = id;
+        if (rank < available) {
+          const uint32_t index = base + rank;
+          resultPrimorial[index] = packedPrimorial | (13u << 16);
+          found[index] = id;
+        }
       }
     }
 
@@ -525,11 +529,14 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       if (lane == leader)
         base = atomicAdd(fcount, __popc(mask14));
       base = __shfl_sync(activeMask, base, leader);
+      const uint32_t available = (base < HASHMOD_OUTPUT_MAX) ? (HASHMOD_OUTPUT_MAX - base) : 0;
       if (p14isValid) {
         const uint32_t rank = __popc(mask14 & laneMaskLt);
-        const uint32_t index = base + rank;
-        resultPrimorial[index] = packedPrimorial | (14u << 16);
-        found[index] = id;
+        if (rank < available) {
+          const uint32_t index = base + rank;
+          resultPrimorial[index] = packedPrimorial | (14u << 16);
+          found[index] = id;
+        }
       }
     }
 
@@ -540,11 +547,14 @@ __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
       if (lane == leader)
         base = atomicAdd(fcount, __popc(mask15));
       base = __shfl_sync(activeMask, base, leader);
+      const uint32_t available = (base < HASHMOD_OUTPUT_MAX) ? (HASHMOD_OUTPUT_MAX - base) : 0;
       if (p15isValid) {
         const uint32_t rank = __popc(mask15 & laneMaskLt);
-        const uint32_t index = base + rank;
-        resultPrimorial[index] = packedPrimorial | (15u << 16);
-        found[index] = id;
+        if (rank < available) {
+          const uint32_t index = base + rank;
+          resultPrimorial[index] = packedPrimorial | (15u << 16);
+          found[index] = id;
+        }
       }
     }
   }
