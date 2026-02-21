@@ -316,9 +316,6 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
   cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
   cudaBuffer<uint32_t> primeBuf2[maxHashPrimorial];
   
-  CUevent sieveEvent;
-  CUDA_SAFE_CALL(cuEventCreate(&sieveEvent, CU_EVENT_BLOCKING_SYNC));
-  
   for (unsigned i = 0; i < maxHashPrimorial - mPrimorial; i++) {
     CUDA_SAFE_CALL(primeBuf[i].init(mConfig.PCOUNT, true));
     CUDA_SAFE_CALL(primeBuf[i].copyToDevice(&gPrimes[mPrimorial+i+1]));
@@ -650,7 +647,6 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
                                         256, 1, 1,
                                         0, mSieveStream, arguments, 0));
           
-          CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream)); 
 				}
 			}
 		
@@ -670,24 +666,30 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
     FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
 
-    // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
-    // syncronize our stream one time per iteration
-    // sieve stream is first because it much bigger
-    CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent)); 
-#ifdef __WINDOWS__  
-    CUDA_SAFE_CALL(cuCtxSynchronize());
-#endif
+    // Copy counts first, then transfer payload buffers only when needed.
     for (unsigned i = 0; i < mSievePerRound; i++)
       CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
-    
-    // Synchronize Fermat stream, copy all needed data
-    CUDA_SAFE_CALL(hashmod.found.copyToHost(mHMFermatStream));
-    CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(mHMFermatStream));
+    CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+
     CUDA_SAFE_CALL(hashmod.count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
-    CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
+    CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+
+    if (hashmod.count[0]) {
+      CUDA_SAFE_CALL(hashmod.found.copyToHost(mHMFermatStream));
+      CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(mHMFermatStream));
+    }
+
+    if (final.count[0])
+      CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
+
+    if (hashmod.count[0] || final.count[0])
+      CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+#ifdef __WINDOWS__
+    CUDA_SAFE_CALL(cuCtxSynchronize());
+#endif
     
     // adjust sieves per round
     if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
@@ -1316,9 +1318,6 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
     cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
     cudaBuffer<uint32_t> primeBuf2[maxHashPrimorial];
 
-    CUevent sieveEvent;
-    CUDA_SAFE_CALL(cuEventCreate(&sieveEvent, CU_EVENT_BLOCKING_SYNC));
-
     for (unsigned i = 0; i < maxHashPrimorial - mPrimorial; i++) {
         CUDA_SAFE_CALL(primeBuf[i].init(mConfig.PCOUNT, true));
         CUDA_SAFE_CALL(primeBuf[i].copyToDevice(&gPrimes[mPrimorial+i+1]));
@@ -1644,7 +1643,6 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                                                 256, 1, 1,
                                                 0, mSieveStream, arguments, 0));
                 
-                CUDA_SAFE_CALL(cuEventRecord(sieveEvent, mSieveStream)); 
             }
         }
         
@@ -1663,25 +1661,31 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         FermatDispatch(fermat320, sieveBuffers, candidatesCountBuffers, 0, ridx, widx, testCount, fermatCount, mFermatKernel320, mSievePerRound);
         FermatDispatch(fermat352, sieveBuffers, candidatesCountBuffers, 1, ridx, widx, testCount, fermatCount, mFermatKernel352, mSievePerRound);
 
-        // copyToHost (cuMemcpyDtoHAsync) always blocking sync call!
-        // syncronize our stream one time per iteration
-        // sieve stream is first because it much bigger
-        CUDA_SAFE_CALL(cuEventSynchronize(sieveEvent)); 
-    #ifdef __WINDOWS__  
-        CUDA_SAFE_CALL(cuCtxSynchronize());
-    #endif
+        // Copy counts first, then transfer payload buffers only when needed.
         for (unsigned i = 0; i < mSievePerRound; i++)
-        CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
-        
-        // Synchronize Fermat stream, copy all needed data
-        CUDA_SAFE_CALL(hashmod.found.copyToHost(mHMFermatStream));
-        CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(mHMFermatStream));
+          CUDA_SAFE_CALL(candidatesCountBuffers[i][widx].copyToHost(mSieveStream));
+        CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+
         CUDA_SAFE_CALL(hashmod.count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
-        CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
-        
+        CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+
+        if (hashmod.count[0]) {
+          CUDA_SAFE_CALL(hashmod.found.copyToHost(mHMFermatStream));
+          CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(mHMFermatStream));
+        }
+
+        if (final.count[0])
+          CUDA_SAFE_CALL(final.info.copyToHost(mHMFermatStream));
+
+        if (hashmod.count[0] || final.count[0])
+          CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+    #ifdef __WINDOWS__
+        CUDA_SAFE_CALL(cuCtxSynchronize());
+    #endif
+
         // adjust sieves per round
         if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
             fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mBlockSize) {

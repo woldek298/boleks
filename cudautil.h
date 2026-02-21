@@ -34,11 +34,24 @@ public:
   size_t _size;
   T *_hostData;
   CUdeviceptr _deviceData;
+  bool _hostPinned;
   
 public:
-  cudaBuffer() : _size(0), _hostData(0), _deviceData(0) {}
+  cudaBuffer() : _size(0), _hostData(0), _deviceData(0), _hostPinned(false) {}
   ~cudaBuffer() {
-    delete[] _hostData;
+    if (_hostData) {
+      if (_hostPinned) {
+        CUresult result = cuMemFreeHost(_hostData);
+        if (result != CUDA_SUCCESS) {
+          const char *msg;
+          cuGetErrorName(result, &msg);
+          LOG_F(ERROR, "CUDA pinned host memory free failed with error %s code: %i\n", msg, static_cast<int>(result));
+        }
+      } else {
+        delete[] _hostData;
+      }
+    }
+
     if (_deviceData) {
       CUresult result = cuMemFree(_deviceData);
       if (result != CUDA_SUCCESS) {
@@ -51,8 +64,15 @@ public:
   
   CUresult init(size_t size, bool hostNoAccess) {
     _size = size;
-    if (!hostNoAccess)
-      _hostData = new T[size];
+    if (!hostNoAccess) {
+      CUresult result = cuMemAllocHost((void**)&_hostData, sizeof(T)*size);
+      if (result == CUDA_SUCCESS) {
+        _hostPinned = true;
+      } else {
+        _hostData = new T[size];
+        _hostPinned = false;
+      }
+    }
     return cuMemAlloc(&_deviceData, sizeof(T)*size);
   }
   
