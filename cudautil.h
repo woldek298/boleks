@@ -80,6 +80,14 @@ public:
     return cuMemcpyHtoD(_deviceData, _hostData, sizeof(T)*_size);
   }
 
+  CUresult copyToDevice(size_t count) {
+    return cuMemcpyHtoD(_deviceData, _hostData, sizeof(T)*count);
+  }
+
+  CUresult copyToDevice(size_t count, CUstream stream) {
+    return cuMemcpyHtoDAsync(_deviceData, _hostData, sizeof(T)*count, stream);
+  }
+
   CUresult copyToDevice(CUstream stream) {
     return cuMemcpyHtoDAsync(_deviceData, _hostData, sizeof(T)*_size, stream);
   }  
@@ -95,7 +103,27 @@ public:
   CUresult copyToHost() {
     return cuMemcpyDtoH(_hostData, _deviceData, sizeof(T)*_size);
   }
-  
+
+  CUresult copyToHost(size_t count) {
+    return cuMemcpyDtoH(_hostData, _deviceData, sizeof(T)*count);
+  }
+
+  CUresult copyToHost(size_t count, CUstream stream) {
+    return cuMemcpyDtoHAsync(_hostData, _deviceData, sizeof(T)*count, stream);
+  }
+
+  CUresult memsetDevice(unsigned value) {
+    return cuMemsetD32(_deviceData, value, _size);
+  }
+
+  CUresult memsetDevice(unsigned value, size_t count) {
+    return cuMemsetD32(_deviceData, value, count);
+  }
+
+  CUresult memsetDevice(unsigned value, size_t count, CUstream stream) {
+    return cuMemsetD32Async(_deviceData, value, count, stream);
+  }
+
   CUresult copyToHost(CUstream stream) {
     return cuMemcpyDtoHAsync(_hostData, _deviceData, sizeof(T)*_size, stream);
   }  
