@@ -512,7 +512,7 @@ void cudaHashmodBenchmark(CUfunction *kernels,
       phashCount[primorialIdx]++;
 
       mpz_class mpzRealPrimorial;        
-      mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);            
+      mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);            
       primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
       mpz_class mpzHashMultiplier = allPrimorials[primorialIdx] / mpzRealPrimorial;
       unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);      
@@ -535,7 +535,7 @@ void cudaHashmodBenchmark(CUfunction *kernels,
       mpz_class mpzHash;
       mpz_set_uint256(mpzHash.get_mpz_t(), hashValue);
       if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-        LOG_F(INFO, " * error: mpz_divisible_ui_p failed.");
+        LOG_F(INFO, " * error: mpz_divisible_p failed.");
         continue;
       }    
       
@@ -691,11 +691,10 @@ void cudaSieveTestBenchmark(CUfunction *kernels,
       }
 
       mpz_class mpzRealPrimorial;
-      mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
+      mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);
       primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
       mpz_class mpzHashMultiplier = allPrimorial[primorialIdx] / mpzRealPrimorial;
       unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);
-      mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);
 
       PrimeMiner::block_t b = blockheader;
       b.nonce = hash.nonce;
@@ -716,7 +715,7 @@ void cudaSieveTestBenchmark(CUfunction *kernels,
       mpz_class mpzHash;
       mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
       if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-        LOG_F(INFO, " * error: mpz_divisible_ui_p failed.");
+        LOG_F(INFO, " * error: mpz_divisible_p failed.");
         continue;
       }
 
