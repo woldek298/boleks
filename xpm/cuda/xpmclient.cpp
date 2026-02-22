@@ -505,10 +505,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		
 		if (pendingCopy) {
       auto telemetryCopySyncStart = std::chrono::steady_clock::now();
-      CUresult copyReadyResult = cuStreamQuery(mCopyStream);
-      if (copyReadyResult == CUDA_ERROR_NOT_READY)
-        continue;
-      CUDA_SAFE_CALL(copyReadyResult);
+      CUDA_SAFE_CALL(cuStreamSynchronize(mCopyStream));
 
       if (hashmod.count[0]) {
         unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
@@ -1589,10 +1586,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         if (pendingCopy) {
             auto telemetryCopySyncStart = std::chrono::steady_clock::now();
-            CUresult copyReadyResult = cuStreamQuery(mCopyStream);
-            if (copyReadyResult == CUDA_ERROR_NOT_READY)
-                continue;
-            CUDA_SAFE_CALL(copyReadyResult);
+            CUDA_SAFE_CALL(cuStreamSynchronize(mCopyStream));
 
             if (hashmod.count[0]) {
                 unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
