@@ -12,6 +12,34 @@ __constant__ uint32_t nps_all[] = { 2, 2, 3, 4, 5, 5, 5, 6, 6 }; // 256 threads
 #error "Unsupported LSIZELOG2 constant"
 #endif
 
+
+__device__ __forceinline__ void atomicOrCompact4(uint32_t *base,
+                                                 uint32_t i0, uint32_t b0,
+                                                 uint32_t i1, uint32_t b1,
+                                                 uint32_t i2, uint32_t b2,
+                                                 uint32_t i3, uint32_t b3)
+{
+  uint32_t idx[4] = { i0, i1, i2, i3 };
+  uint32_t bits[4] = { b0, b1, b2, b3 };
+
+#pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    uint32_t index = idx[i];
+    if (index == 0xFFFFFFFFu)
+      continue;
+
+    uint32_t mask = bits[i];
+#pragma unroll
+    for (int j = i + 1; j < 4; ++j) {
+      if (idx[j] == index) {
+        mask |= bits[j];
+        idx[j] = 0xFFFFFFFFu;
+      }
+    }
+    atomicOr(&base[index], mask);
+  }
+}
+
 __global__ void sieve(uint32_t *gsieve_all,
                       uint32_t* offset_all,
                       uint2 *primes)
@@ -74,43 +102,43 @@ __global__ void sieve(uint32_t *gsieve_all,
       uint32_t bit4 = orb << (vpos.w % 32);
       const uint32_t add = var*4*prime >> 5;
       while (s4 < se) {
-        atomicOr(s1, bit1);
-        atomicOr(s2, bit2);
-        atomicOr(s3, bit3);
-        atomicOr(s4, bit4);
+        atomicOrCompact4(sieve,
+                         (uint32_t)(s1 - sieve), bit1,
+                         (uint32_t)(s2 - sieve), bit2,
+                         (uint32_t)(s3 - sieve), bit3,
+                         (uint32_t)(s4 - sieve), bit4);
         s1 += add;
         s2 += add;
         s3 += add;
         s4 += add;
       }
 
-      if (s1 < se)
-        atomicOr(s1, bit1);
-      if (s2 < se)
-        atomicOr(s2, bit2);
-      if (s3 < se)
-        atomicOr(s3, bit3);
+      atomicOrCompact4(sieve,
+                       (s1 < se) ? (uint32_t)(s1 - sieve) : 0xFFFFFFFFu, bit1,
+                       (s2 < se) ? (uint32_t)(s2 - sieve) : 0xFFFFFFFFu, bit2,
+                       (s3 < se) ? (uint32_t)(s3 - sieve) : 0xFFFFFFFFu, bit3,
+                       0xFFFFFFFFu, 0u);
     } else {
 
 
     const uint32_t add = var*4*prime;
     while (vpos.w < SIZE*32) {
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
-      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
+      atomicOrCompact4(sieve,
+                       (vpos.x >> 5), orb << (vpos.x % 32),
+                       (vpos.y >> 5), orb << (vpos.y % 32),
+                       (vpos.z >> 5), orb << (vpos.z % 32),
+                       (vpos.w >> 5), orb << (vpos.w % 32));
       vpos.x += add;
       vpos.y += add;
       vpos.z += add;
       vpos.w += add;
     }
 
-    if (vpos.x < SIZE*32)
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-    if (vpos.y < SIZE*32)
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-    if (vpos.z < SIZE*32)
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+    atomicOrCompact4(sieve,
+                     (vpos.x < SIZE*32) ? (vpos.x >> 5) : 0xFFFFFFFFu, orb << (vpos.x % 32),
+                     (vpos.y < SIZE*32) ? (vpos.y >> 5) : 0xFFFFFFFFu, orb << (vpos.y % 32),
+                     (vpos.z < SIZE*32) ? (vpos.z >> 5) : 0xFFFFFFFFu, orb << (vpos.z % 32),
+                     0xFFFFFFFFu, 0u);
     }
   }
   
