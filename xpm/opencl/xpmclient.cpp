@@ -490,11 +490,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
         }      
         
         mpz_class mpzRealPrimorial;        
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);            
+        mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);            
         primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
         mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
-        unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);      
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);        
 				
 				block_t b = blockheader;
 				b.nonce = hash.nonce;
@@ -516,7 +514,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				mpz_class mpzHash;
 				mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
         if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-          LOG_F(WARNING, "mpz_divisible_ui_p failed");
+          LOG_F(WARNING, "mpz_divisible_p failed");
 					stats.errors++;
 					continue;
 				}
@@ -1865,11 +1863,9 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 }      
                 
                 mpz_class mpzRealPrimorial;        
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);            
+                mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);            
                 primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
                 mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
-                unsigned hashMultiplierSize = mpz_sizeinbase(mpzHashMultiplier.get_mpz_t(), 2);      
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 2, -1, 4, 0, 0, &realPrimorial);        
                             
                 block_t b = blockheader;
                 b.nonce = hash.nonce;
@@ -1891,7 +1887,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 mpz_class mpzHash;
                 mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
                 if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-                    LOG_F(WARNING, "mpz_divisible_ui_p failed");
+                    LOG_F(WARNING, "mpz_divisible_p failed");
                     stats.errors++;
                     continue;
                 }
