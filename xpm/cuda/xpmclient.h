@@ -212,7 +212,9 @@ private:
 
   CUcontext _context;
   CUstream mSieveStream;
+  CUstream mSieveAuxStream;
 	CUstream mHMFermatStream;
+  CUstream mCopyStream;
 
 	CUfunction mHashMod;
 	CUfunction mSieveSetup;
