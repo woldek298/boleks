@@ -467,6 +467,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 		
 		// reset if new work
 		if(reset){
+      CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+      CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
       hashes.clear();
 			hashmod.count[0] = 0;
 			fermat320.bsize = 0;
@@ -480,6 +482,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
       hasHashmodEvent = false;
       hasSieveEvent = false;
       hasFermatEvent = false;
+
+      stageCounts[0] = 0;
+      stageCounts[1] = 0;
 
       for(int sieveIdx = 0; sieveIdx < SW; ++sieveIdx) {
         for(int instIdx = 0; instIdx < 2; ++instIdx) {
@@ -615,7 +620,6 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 
 		int ridx = iteration % 2;
 		int widx = ridx xor 1;
-		bool pullFermatTuning = ((iteration & 0x3) == 0);
 		
 		// sieve dispatch    
       unsigned dispatchedSieves = 0;
@@ -777,8 +781,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
     
     // adjust sieves per round
-    if (pullFermatTuning &&
-        fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
+    if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
         fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mBlockSize) {
       mSievePerRound = std::min((unsigned)SW, mSievePerRound+1);
       LOG_F(WARNING, "not enough candidates (%u available, must be more than %u",
@@ -1547,6 +1550,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         
         // reset if new work
         if(reset){
+            CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
+            CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
             hashes.clear();
             hashmod.count[0] = 0;
             fermat320.bsize = 0;
@@ -1560,6 +1565,9 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
             hasHashmodEvent = false;
             hasSieveEvent = false;
             hasFermatEvent = false;
+
+            stageCounts[0] = 0;
+            stageCounts[1] = 0;
 
             for(int sieveIdx = 0; sieveIdx < SW; ++sieveIdx) {
                 for(int instIdx = 0; instIdx < 2; ++instIdx) {
@@ -1698,7 +1706,6 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
 
         int ridx = iteration % 2;
         int widx = ridx xor 1;
-        bool pullFermatTuning = ((iteration & 0x3) == 0);
         
         // sieve dispatch    
         unsigned dispatchedSieves = 0;
@@ -1859,8 +1866,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         telemetryCopySyncUs += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - telemetryCopySyncStart).count();
 
         // adjust sieves per round
-        if (pullFermatTuning &&
-            fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
+        if (fermat320.buffer[ridx].count[0] && fermat320.buffer[ridx].count[0] < mBlockSize &&
             fermat352.buffer[ridx].count[0] && fermat352.buffer[ridx].count[0] < mBlockSize) {
             mSievePerRound = std::min((unsigned)SW, mSievePerRound+1);
             LOG_F(WARNING, "not enough candidates (%u available, must be more than %u",
