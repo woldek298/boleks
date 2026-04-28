@@ -243,6 +243,23 @@ __global__ void sieve(uint32_t *gsieve_all,
     gsieve[i] = sieve[i];
 }
 
+__device__ __forceinline__ uint32_t warpAppend(uint32_t *counter, bool predicate)
+{
+  const unsigned lane = threadIdx.x & 31u;
+  const unsigned active = __ballot_sync(0xFFFFFFFFu, predicate);
+  if (!active)
+    return 0;
+
+  const unsigned leader = __ffs(active) - 1u;
+  uint32_t base = 0;
+  if (lane == leader)
+    base = atomicAdd(counter, __popc(active));
+  base = __shfl_sync(0xFFFFFFFFu, base, leader);
+
+  const unsigned laneMask = (lane == 0u) ? 0u : ((1u << lane) - 1u);
+  return base + __popc(active & laneMask);
+}
+
 __global__ void s_sieve(const uint32_t *gsieve1,
                         const uint32_t* gsieve2,
                         fermat_t *found320,
@@ -267,20 +284,33 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp1[start+line];
 
-    if (mask != 0xFFFFFFFF) {
-      unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
-      unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+    const bool valid = (mask != 0xFFFFFFFFu);
+    const unsigned bit = valid ? (31u - __clz(~mask)) : 0u;
+    const unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;
+    const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
+    const bool is320 = valid && (maxSize <= 320);
+    const bool is352 = valid && !is320;
 
+    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    if (is320) {
       fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 0;
       info.hashid = hashid;
-      found[addr] = info;
+      found320[addr320] = info;
+    }
+
+    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    if (is352) {
+      fermat_t info;
+      info.index = multiplier;
+      info.origin = start;
+      info.chainpos = 0;
+      info.type = 0;
+      info.hashid = hashid;
+      found352[addr352] = info;
     }
   }
 
@@ -296,20 +326,33 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     for (int line = 0; line < TARGET; ++line)
       mask |= tmp2[start+line];
 
-    if (mask != 0xFFFFFFFF) {
-      unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
-      unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+    const bool valid = (mask != 0xFFFFFFFFu);
+    const unsigned bit = valid ? (31u - __clz(~mask)) : 0u;
+    const unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;
+    const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
+    const bool is320 = valid && (maxSize <= 320);
+    const bool is352 = valid && !is320;
 
+    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    if (is320) {
       fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 1;
       info.hashid = hashid;
-      found[addr] = info;
+      found320[addr320] = info;
+    }
+
+    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    if (is352) {
+      fermat_t info;
+      info.index = multiplier;
+      info.origin = start;
+      info.chainpos = 0;
+      info.type = 1;
+      info.hashid = hashid;
+      found352[addr352] = info;
     }
   }
 
@@ -327,20 +370,33 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     if(TARGET & 1u)
       mask |= tmp1[start+TARGET/2];
 
-    if (mask != 0xFFFFFFFF) {
-      unsigned bit = 31-__clz(~mask);
-      unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;  // mad24(id, 32u, (unsigned)bit) + SIZE*32*STRIPES/2;
-      unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
-      const uint32_t addr = atomicAdd(&fcount[(maxSize <= 320) ? 0 : 1], 1);
-      fermat_t *found = (maxSize <= 320) ? found320 : found352;
+    const bool valid = (mask != 0xFFFFFFFFu);
+    const unsigned bit = valid ? (31u - __clz(~mask)) : 0u;
+    const unsigned multiplier = bit + id*32 + SIZE*32*STRIPES/2;
+    const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
+    const bool is320 = valid && (maxSize <= 320);
+    const bool is352 = valid && !is320;
 
+    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    if (is320) {
       fermat_t info;
       info.index = multiplier;
       info.origin = start;
       info.chainpos = 0;
       info.type = 2;
       info.hashid = hashid;
-      found[addr] = info;
+      found320[addr320] = info;
+    }
+
+    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    if (is352) {
+      fermat_t info;
+      info.index = multiplier;
+      info.origin = start;
+      info.chainpos = 0;
+      info.type = 2;
+      info.hashid = hashid;
+      found352[addr352] = info;
     }
   }
 }
