@@ -565,7 +565,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
         CUDA_SAFE_CALL(cuEventSynchronize(hmDataReady));
       }
 #ifdef __WINDOWS__
-      CUDA_SAFE_CALL(cuCtxSynchronize());
+      // Avoid full-context synchronization here. At this point we already
+      // synchronized on the exact events that guard host-visible data
+      // (sieveCountsReady / hmCountsReady / hmDataReady), so a global context
+      // barrier only stalls overlap between streams and adds latency.
 #endif
       if (hasHashmodEvent) {
         float ms = 0.0f;
@@ -1674,7 +1677,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 CUDA_SAFE_CALL(cuEventSynchronize(hmDataReady));
             }
 #ifdef __WINDOWS__
-            CUDA_SAFE_CALL(cuCtxSynchronize());
+            // Avoid full-context synchronization here. At this point we already
+            // synchronized on the exact events that guard host-visible data
+            // (sieveCountsReady / hmCountsReady / hmDataReady), so a global context
+            // barrier only stalls overlap between streams and adds latency.
 #endif
             if (hasHashmodEvent) {
                 float ms = 0.0f;
