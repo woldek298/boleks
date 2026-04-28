@@ -551,6 +551,11 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 
       if (hashmod.count[0]) {
         unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+        if (hashmodCount < (unsigned)hashmod.count[0]) {
+          LOG_F(WARNING, "hashmod candidate buffer overflow: count=%u, capacity=%u (clamping)",
+                (unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+          hashmod.count[0] = hashmodCount;
+        }
         CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
         CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
       }
@@ -1660,6 +1665,11 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
 
             if (hashmod.count[0]) {
                 unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+                if (hashmodCount < (unsigned)hashmod.count[0]) {
+                    LOG_F(WARNING, "hashmod candidate buffer overflow: count=%u, capacity=%u (clamping)",
+                            (unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
+                    hashmod.count[0] = hashmodCount;
+                }
                 CUDA_SAFE_CALL(hashmod.found.copyToHost(hashmodCount, mHMFermatStream));
                 CUDA_SAFE_CALL(hashmod.primorialBitField.copyToHost(hashmodCount, mHMFermatStream));
             }
