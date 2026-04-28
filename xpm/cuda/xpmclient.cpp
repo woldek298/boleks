@@ -1133,10 +1133,9 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		char ccoption[64];
 		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
     sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
-    const char* defaultOptimize = "--optimize=3";
-    const char* defaultVectorize = "--extra-device-vectorization";
-    const char *options[] = { ccoption, defaultOptimize, defaultVectorize, arguments.c_str() };
-    const int optionsCount = arguments.empty() ? 3 : 4;
+    const char* defaultOptimize = "-O3";
+    const char *options[] = { ccoption, defaultOptimize, arguments.c_str() };
+    const int optionsCount = arguments.empty() ? 2 : 3;
 		CUDA_SAFE_CALL(cuCtxSetCurrent(gpus[i].context));
     if (!cudaCompileKernel(kernelname,
 				{ "xpm/cuda/config.cu", "xpm/cuda/procs.cu", "xpm/cuda/fermat.cu", "xpm/cuda/sieve.cu", "xpm/cuda/sha256.cu", "xpm/cuda/benchmarks.cu"},
