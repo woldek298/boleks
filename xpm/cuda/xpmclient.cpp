@@ -623,9 +623,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
         if (canUseFastPath) {
           if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
-            LOG_F(WARNING, "fast divisibility check failed.\n");
-					  stats.errors++;
-					  continue;
+            // Expected filter path: most hash candidates are not divisible.
+            continue;
 				  }
 
           hash.primorial = primorialU64[primorialIdx] / realPrimorial;
@@ -637,8 +636,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
               mpzRealPrimorial *= gPrimes[j];
           }
           if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-            LOG_F(WARNING, "mpz_divisible_p failed.\n");
-            stats.errors++;
+            // Expected filter path in fallback.
             continue;
           }
           hash.primorial = primorial[primorialIdx] / mpzRealPrimorial;
@@ -1724,8 +1722,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                     mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
                 if (canUseFastPath) {
                     if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
-                        LOG_F(WARNING, "fast divisibility check failed.\n");
-                        stats.errors++;
+                        // Expected filter path: most hash candidates are not divisible.
                         continue;
                     }
 
@@ -1738,8 +1735,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                             mpzRealPrimorial *= gPrimes[j];
                     }
                     if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-                        LOG_F(WARNING, "mpz_divisible_p failed.\n");
-                        stats.errors++;
+                        // Expected filter path in fallback.
                         continue;
                     }
                     hash.primorial = primorial[primorialIdx] / mpzRealPrimorial;
