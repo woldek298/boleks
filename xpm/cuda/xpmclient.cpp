@@ -35,6 +35,36 @@ extern "C" {
 std::vector<unsigned> gPrimes;
 std::vector<unsigned> gPrimes2;
 
+static inline uint64_t modUint256ByUint64(const uint256& value, uint64_t divisor)
+{
+  if (!divisor)
+    return 0;
+
+  const unsigned char* bytes = value.begin();
+  uint64_t remainder = 0;
+  for (int i = 31; i >= 0; --i) {
+    remainder = static_cast<uint64_t>((static_cast<unsigned __int128>(remainder) * 256u + bytes[i]) % divisor);
+  }
+  return remainder;
+}
+
+static inline bool realPrimorialFromBitFieldU64(uint32_t primorialBitField, uint32_t sourcePrimorialIdx, uint64_t& realPrimorial)
+{
+  if (gPrimes.empty())
+    return false;
+
+  realPrimorial = 1;
+  const unsigned maxPrimeIndex = static_cast<unsigned>(gPrimes.size() - 1);
+  const unsigned cappedIdx = std::min(std::min(sourcePrimorialIdx, 31u), maxPrimeIndex);
+  for (unsigned j = 0; j <= cappedIdx; ++j) {
+    if (primorialBitField & (1u << j)) {
+      if (__builtin_mul_overflow(realPrimorial, static_cast<uint64_t>(gPrimes[j]), &realPrimorial))
+        return false;
+    }
+  }
+  return true;
+}
+
 void _blkmk_bin2hex(char *out, void *data, size_t datasz) {
   unsigned char *datac = (unsigned char *)data;
   static char hex[] = "0123456789abcdef";
@@ -305,6 +335,8 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 
 	unsigned iteration = 0;
 	mpz_class primorial[maxHashPrimorial];
+  uint64_t primorialU64[maxHashPrimorial] = {0};
+  bool primorialU64Valid[maxHashPrimorial] = {false};
 	block_t blockheader;
   search_t hashmod;
   sha256precalcData precalcData;
@@ -322,12 +354,16 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
   bool pendingCopy = false;
   unsigned pendingDispatchedSieves = 0;
   CUevent hashmodStart, hashmodStop, sieveStart, sieveStop, fermatStart, fermatStop;
+  CUevent hmCountsReady, sieveCountsReady, hmDataReady;
   CUDA_SAFE_CALL(cuEventCreate(&hashmodStart, CU_EVENT_DEFAULT));
   CUDA_SAFE_CALL(cuEventCreate(&hashmodStop, CU_EVENT_DEFAULT));
   CUDA_SAFE_CALL(cuEventCreate(&sieveStart, CU_EVENT_DEFAULT));
   CUDA_SAFE_CALL(cuEventCreate(&sieveStop, CU_EVENT_DEFAULT));
   CUDA_SAFE_CALL(cuEventCreate(&fermatStart, CU_EVENT_DEFAULT));
   CUDA_SAFE_CALL(cuEventCreate(&fermatStop, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&hmCountsReady, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&sieveCountsReady, CU_EVENT_DEFAULT));
+  CUDA_SAFE_CALL(cuEventCreate(&hmDataReady, CU_EVENT_DEFAULT));
   bool hasHashmodEvent = false, hasSieveEvent = false, hasFermatEvent = false;
 
   cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
@@ -339,10 +375,18 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     CUDA_SAFE_CALL(primeBuf2[i].init(mConfig.PCOUNT*2, true));
     CUDA_SAFE_CALL(primeBuf2[i].copyToDevice(&gPrimes2[2*(mPrimorial+i)+2]));
     mpz_class p = 1;
+    uint64_t p64 = 1;
+    bool p64Valid = true;
     for(unsigned j = 0; j <= mPrimorial+i; j++)
-      p *= gPrimes[j];    
+    {
+      p *= gPrimes[j];
+      if (p64Valid && __builtin_mul_overflow(p64, static_cast<uint64_t>(gPrimes[j]), &p64))
+        p64Valid = false;
+    }
     primorial[i] = p;
-  }  
+    primorialU64[i] = p64;
+    primorialU64Valid[i] = p64Valid;
+  }
   
 	{
 		unsigned primorialbits = mpz_sizeinbase(primorial[0].get_mpz_t(), 2);
@@ -499,12 +543,11 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
       CUDA_SAFE_CALL(hashmod.count.memsetDevice(0, 1, mHMFermatStream));
 		}
 		
-		if (pendingCopy) {
+    if (pendingCopy) {
       auto telemetryCopySyncStart = std::chrono::steady_clock::now();
       if (pendingDispatchedSieves)
-        CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
-
-      CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+        CUDA_SAFE_CALL(cuEventSynchronize(sieveCountsReady));
+      CUDA_SAFE_CALL(cuEventSynchronize(hmCountsReady));
 
       if (hashmod.count[0]) {
         unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
@@ -517,8 +560,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
         CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
       }
 
-      if (hashmod.count[0] || final.count[0])
-        CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+      if (hashmod.count[0] || final.count[0]) {
+        CUDA_SAFE_CALL(cuEventRecord(hmDataReady, mHMFermatStream));
+        CUDA_SAFE_CALL(cuEventSynchronize(hmDataReady));
+      }
 #ifdef __WINDOWS__
       CUDA_SAFE_CALL(cuCtxSynchronize());
 #endif
@@ -555,17 +600,12 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				hash.time = blockheader.time;
 				hash.nonce = hashmod.found[i];
         uint32_t primorialBitField = hashmod.primorialBitField[i];
-        uint32_t primorialIdx = primorialBitField >> 16;
-        uint64_t realPrimorial = 1;
-        for (unsigned j = 0; j < primorialIdx+1; j++) {
-          if (primorialBitField & (1 << j))
-            realPrimorial *= gPrimes[j];
-        }      
-        
-        mpz_class mpzRealPrimorial;        
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);            
-        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+        uint32_t sourcePrimorialIdx = primorialBitField >> 16;
+        uint32_t primorialIdx = std::max(mPrimorial, sourcePrimorialIdx) - mPrimorial;
+        uint64_t realPrimorial = 0;
+        bool canUseFastPath = primorialU64Valid[primorialIdx] &&
+                              realPrimorialFromBitFieldU64(primorialBitField, sourcePrimorialIdx, realPrimorial) &&
+                              realPrimorial != 0;
 				
 				block_t b = blockheader;
 				b.nonce = hash.nonce;
@@ -586,15 +626,29 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				
 				mpz_class mpzHash;
 				mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
-        if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-          LOG_F(WARNING, "mpz_divisible_p failed.\n");
-					stats.errors++;
-					continue;
-				}
-				
+        if (canUseFastPath) {
+          if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
+            // Expected filter path: most hash candidates are not divisible.
+            continue;
+				  }
+
+          hash.primorial = primorialU64[primorialIdx] / realPrimorial;
+        } else {
+          mpz_class mpzRealPrimorial = 1;
+          const unsigned cappedIdx = std::min(sourcePrimorialIdx, static_cast<uint32_t>(gPrimes.size() - 1));
+          for (unsigned j = 0; j <= cappedIdx; ++j) {
+            if (primorialBitField & (1u << j))
+              mpzRealPrimorial *= gPrimes[j];
+          }
+          if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
+            // Expected filter path in fallback.
+            continue;
+          }
+          hash.primorial = primorial[primorialIdx] / mpzRealPrimorial;
+        }
+
 				hash.primorialIdx = primorialIdx;
-        hash.primorial = mpzHashMultiplier;
-        hash.shash = mpzHash * hash.primorial;       
+        hash.shash = mpzHash * hash.primorial;
 
         unsigned hid = hashes.push(hash);
         memset(&hashBuf[hid*mConfig.N], 0, sizeof(uint32_t)*mConfig.N);
@@ -769,6 +823,9 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
     CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
+    if (dispatchedSieves)
+      CUDA_SAFE_CALL(cuEventRecord(sieveCountsReady, mSieveStream));
+    CUDA_SAFE_CALL(cuEventRecord(hmCountsReady, mHMFermatStream));
 
     pendingCopy = true;
     pendingDispatchedSieves = dispatchedSieves;
@@ -1075,13 +1132,14 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 		char kernelname[64];
 		char ccoption[64];
 		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
-        sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
+    sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
     const char *options[] = { ccoption, arguments.c_str() };
+    const int optionsCount = arguments.empty() ? 1 : 2;
 		CUDA_SAFE_CALL(cuCtxSetCurrent(gpus[i].context));
     if (!cudaCompileKernel(kernelname,
 				{ "xpm/cuda/config.cu", "xpm/cuda/procs.cu", "xpm/cuda/fermat.cu", "xpm/cuda/sieve.cu", "xpm/cuda/sha256.cu", "xpm/cuda/benchmarks.cu"},
 				options,
-        arguments.empty() ? 1 : 2,
+        optionsCount,
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
@@ -1390,6 +1448,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
 
     unsigned iteration = 0;
     mpz_class primorial[maxHashPrimorial];
+    uint64_t primorialU64[maxHashPrimorial] = {0};
+    bool primorialU64Valid[maxHashPrimorial] = {false};
     block_t blockheader;
     search_t hashmod;
     sha256precalcData precalcData;
@@ -1407,12 +1467,16 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
     bool pendingCopy = false;
     unsigned pendingDispatchedSieves = 0;
     CUevent hashmodStart, hashmodStop, sieveStart, sieveStop, fermatStart, fermatStop;
+    CUevent hmCountsReady, sieveCountsReady, hmDataReady;
     CUDA_SAFE_CALL(cuEventCreate(&hashmodStart, CU_EVENT_DEFAULT));
     CUDA_SAFE_CALL(cuEventCreate(&hashmodStop, CU_EVENT_DEFAULT));
     CUDA_SAFE_CALL(cuEventCreate(&sieveStart, CU_EVENT_DEFAULT));
     CUDA_SAFE_CALL(cuEventCreate(&sieveStop, CU_EVENT_DEFAULT));
     CUDA_SAFE_CALL(cuEventCreate(&fermatStart, CU_EVENT_DEFAULT));
     CUDA_SAFE_CALL(cuEventCreate(&fermatStop, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&hmCountsReady, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&sieveCountsReady, CU_EVENT_DEFAULT));
+    CUDA_SAFE_CALL(cuEventCreate(&hmDataReady, CU_EVENT_DEFAULT));
     bool hasHashmodEvent = false, hasSieveEvent = false, hasFermatEvent = false;
 
     cudaBuffer<uint32_t> primeBuf[maxHashPrimorial];
@@ -1424,10 +1488,18 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         CUDA_SAFE_CALL(primeBuf2[i].init(mConfig.PCOUNT*2, true));
         CUDA_SAFE_CALL(primeBuf2[i].copyToDevice(&gPrimes2[2*(mPrimorial+i)+2]));
         mpz_class p = 1;
+        uint64_t p64 = 1;
+        bool p64Valid = true;
         for(unsigned j = 0; j <= mPrimorial+i; j++)
-            p *= gPrimes[j];    
+        {
+            p *= gPrimes[j];
+            if (p64Valid && __builtin_mul_overflow(p64, static_cast<uint64_t>(gPrimes[j]), &p64))
+                p64Valid = false;
+        }
         primorial[i] = p;
-    }  
+        primorialU64[i] = p64;
+        primorialU64Valid[i] = p64Valid;
+    }
 
     {
         unsigned primorialbits = mpz_sizeinbase(primorial[0].get_mpz_t(), 2);
@@ -1583,9 +1655,8 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         if (pendingCopy) {
             auto telemetryCopySyncStart = std::chrono::steady_clock::now();
             if (pendingDispatchedSieves)
-                CUDA_SAFE_CALL(cuStreamSynchronize(mSieveStream));
-
-            CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+                CUDA_SAFE_CALL(cuEventSynchronize(sieveCountsReady));
+            CUDA_SAFE_CALL(cuEventSynchronize(hmCountsReady));
 
             if (hashmod.count[0]) {
                 unsigned hashmodCount = std::min((unsigned)hashmod.count[0], (unsigned)hashmod.found._size);
@@ -1598,8 +1669,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 CUDA_SAFE_CALL(final.info.copyToHost(finalCount, mHMFermatStream));
             }
 
-            if (hashmod.count[0] || final.count[0])
-                CUDA_SAFE_CALL(cuStreamSynchronize(mHMFermatStream));
+            if (hashmod.count[0] || final.count[0]) {
+                CUDA_SAFE_CALL(cuEventRecord(hmDataReady, mHMFermatStream));
+                CUDA_SAFE_CALL(cuEventSynchronize(hmDataReady));
+            }
 #ifdef __WINDOWS__
             CUDA_SAFE_CALL(cuCtxSynchronize());
 #endif
@@ -1635,17 +1708,12 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 hash.time = blockheader.time;
                 hash.nonce = hashmod.found[i];
                 uint32_t primorialBitField = hashmod.primorialBitField[i];
-                uint32_t primorialIdx = primorialBitField >> 16;
-                uint64_t realPrimorial = 1;
-                for (unsigned j = 0; j < primorialIdx+1; j++) {
-                    if (primorialBitField & (1 << j))
-                        realPrimorial *= gPrimes[j];
-                }      
-                
-                mpz_class mpzRealPrimorial;        
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);
-                primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-                mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+                uint32_t sourcePrimorialIdx = primorialBitField >> 16;
+                uint32_t primorialIdx = std::max(mPrimorial, sourcePrimorialIdx) - mPrimorial;
+                uint64_t realPrimorial = 0;
+                bool canUseFastPath = primorialU64Valid[primorialIdx] &&
+                                      realPrimorialFromBitFieldU64(primorialBitField, sourcePrimorialIdx, realPrimorial) &&
+                                      realPrimorial != 0;
                         
                 block_t b = blockheader;
                 b.nonce = hash.nonce;
@@ -1666,14 +1734,28 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                         
                     mpz_class mpzHash;
                     mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
-                if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-                    LOG_F(WARNING, "mpz_divisible_p failed.\n");
-                    stats.errors++;
-                    continue;
+                if (canUseFastPath) {
+                    if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
+                        // Expected filter path: most hash candidates are not divisible.
+                        continue;
+                    }
+
+                    hash.primorial = primorialU64[primorialIdx] / realPrimorial;
+                } else {
+                    mpz_class mpzRealPrimorial = 1;
+                    const unsigned cappedIdx = std::min(sourcePrimorialIdx, static_cast<uint32_t>(gPrimes.size() - 1));
+                    for (unsigned j = 0; j <= cappedIdx; ++j) {
+                        if (primorialBitField & (1u << j))
+                            mpzRealPrimorial *= gPrimes[j];
+                    }
+                    if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
+                        // Expected filter path in fallback.
+                        continue;
+                    }
+                    hash.primorial = primorial[primorialIdx] / mpzRealPrimorial;
                 }
-                        
+
                 hash.primorialIdx = primorialIdx;
-                hash.primorial = mpzHashMultiplier;
                 hash.shash = mpzHash * hash.primorial;
 
                 unsigned hid = hashes.push(hash);
@@ -1847,6 +1929,9 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         CUDA_SAFE_CALL(fermat320.buffer[widx].count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(fermat352.buffer[widx].count.copyToHost(mHMFermatStream));
         CUDA_SAFE_CALL(final.count.copyToHost(mHMFermatStream));
+        if (dispatchedSieves)
+            CUDA_SAFE_CALL(cuEventRecord(sieveCountsReady, mSieveStream));
+        CUDA_SAFE_CALL(cuEventRecord(hmCountsReady, mHMFermatStream));
 
         pendingCopy = true;
         pendingDispatchedSieves = dispatchedSieves;
