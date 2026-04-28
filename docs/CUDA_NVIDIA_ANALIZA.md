@@ -126,3 +126,19 @@ NVRTC generuje PTX, a driver JIT kompiluje dalej. Brakuje cache binarek natywnyc
 
 ## Oczekiwany efekt biznesowy
 Przy typowym układzie bottlenecków (atomiki + synchronizacje + CPU postprocess) realistyczny łączny zysk po etapach P1–P4 to **~20–50%** throughputu, zależnie od modelu GPU i jakości aktualnego dostrojenia parametrów.
+
+## Doprecyzowanie po poprawce overflow/divisibility
+Tak — punkt **P1 (Synchronizacje CPU↔GPU i kopiowanie host/device)** nadal jest w pełni aktualny i prawdopodobnie jest teraz najbezpieczniejszym miejscem na kolejne zyski.
+
+### Dlaczego nadal warto robić P1
+- Nawet po naprawie ścieżki `fast divisibility` nadal w pipeline występują wymuszone synchronizacje (`cuStreamSynchronize`) oraz kilka małych kopii host/device na iterację.
+- Te koszty nie poprawiają jakości kandydatów (jak poprawka overflow), więc ich redukcja zwykle podnosi wydajność bez ryzyka regresji CPD.
+
+### Co wdrożyć najpierw (niski risk / wysoki zwrot)
+1. Zastąpić część `cuStreamSynchronize` łańcuchem eventów (`cuEventRecord` + `cuStreamWaitEvent` + `cuEventQuery`).
+2. Zgrupować małe transfery liczników do jednego bufora staging i jednej kopii async.
+3. Ograniczyć logikę „czekania co iterację” i utrzymywać 2–3 iteracje in-flight.
+
+### Realistyczny efekt
+- Samo P1 zwykle daje **~10–25%** wzrostu throughputu (czasem więcej), jeśli telemetry pokazuje duży udział `copy/sync`.
+- W Twoich danych (`copy/sync` rzędu dziesiątek ms) potencjał P1 jest wysoki i warto go zrobić przed kolejnymi agresywnymi zmianami matematyki w CPU.
