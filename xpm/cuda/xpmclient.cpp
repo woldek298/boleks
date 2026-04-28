@@ -35,6 +35,34 @@ extern "C" {
 std::vector<unsigned> gPrimes;
 std::vector<unsigned> gPrimes2;
 
+static inline uint64_t modUint256ByUint64(const uint256& value, uint64_t divisor)
+{
+  if (!divisor)
+    return 0;
+
+  const unsigned char* bytes = value.begin();
+  uint64_t remainder = 0;
+  for (int i = 31; i >= 0; --i) {
+    remainder = static_cast<uint64_t>((static_cast<unsigned __int128>(remainder) * 256u + bytes[i]) % divisor);
+  }
+  return remainder;
+}
+
+static inline uint64_t realPrimorialFromBitField(uint32_t primorialBitField, uint32_t sourcePrimorialIdx)
+{
+  if (gPrimes.empty())
+    return 1;
+
+  uint64_t realPrimorial = 1;
+  const unsigned maxPrimeIndex = static_cast<unsigned>(gPrimes.size() - 1);
+  const unsigned cappedIdx = std::min(std::min(sourcePrimorialIdx, 31u), maxPrimeIndex);
+  for (unsigned j = 0; j <= cappedIdx; ++j) {
+    if (primorialBitField & (1u << j))
+      realPrimorial *= gPrimes[j];
+  }
+  return realPrimorial;
+}
+
 void _blkmk_bin2hex(char *out, void *data, size_t datasz) {
   unsigned char *datac = (unsigned char *)data;
   static char hex[] = "0123456789abcdef";
@@ -305,6 +333,7 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 
 	unsigned iteration = 0;
 	mpz_class primorial[maxHashPrimorial];
+  uint64_t primorialU64[maxHashPrimorial] = {0};
 	block_t blockheader;
   search_t hashmod;
   sha256precalcData precalcData;
@@ -339,10 +368,15 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
     CUDA_SAFE_CALL(primeBuf2[i].init(mConfig.PCOUNT*2, true));
     CUDA_SAFE_CALL(primeBuf2[i].copyToDevice(&gPrimes2[2*(mPrimorial+i)+2]));
     mpz_class p = 1;
+    uint64_t p64 = 1;
     for(unsigned j = 0; j <= mPrimorial+i; j++)
-      p *= gPrimes[j];    
+    {
+      p *= gPrimes[j];
+      p64 *= gPrimes[j];
+    }
     primorial[i] = p;
-  }  
+    primorialU64[i] = p64;
+  }
   
 	{
 		unsigned primorialbits = mpz_sizeinbase(primorial[0].get_mpz_t(), 2);
@@ -555,17 +589,10 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				hash.time = blockheader.time;
 				hash.nonce = hashmod.found[i];
         uint32_t primorialBitField = hashmod.primorialBitField[i];
-        uint32_t primorialIdx = primorialBitField >> 16;
-        uint64_t realPrimorial = 1;
-        for (unsigned j = 0; j < primorialIdx+1; j++) {
-          if (primorialBitField & (1 << j))
-            realPrimorial *= gPrimes[j];
-        }      
-        
-        mpz_class mpzRealPrimorial;        
-        mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);            
-        primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-        mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+        uint32_t sourcePrimorialIdx = primorialBitField >> 16;
+        uint64_t realPrimorial = realPrimorialFromBitField(primorialBitField, sourcePrimorialIdx);
+        uint32_t primorialIdx = std::max(mPrimorial, sourcePrimorialIdx) - mPrimorial;
+        uint64_t hashMultiplier = primorialU64[primorialIdx] / realPrimorial;
 				
 				block_t b = blockheader;
 				b.nonce = hash.nonce;
@@ -586,15 +613,15 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
 				
 				mpz_class mpzHash;
 				mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
-        if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-          LOG_F(WARNING, "mpz_divisible_p failed.\n");
+        if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
+          LOG_F(WARNING, "fast divisibility check failed.\n");
 					stats.errors++;
 					continue;
 				}
-				
+
 				hash.primorialIdx = primorialIdx;
-        hash.primorial = mpzHashMultiplier;
-        hash.shash = mpzHash * hash.primorial;       
+        hash.primorial = hashMultiplier;
+        hash.shash = mpzHash * hash.primorial;
 
         unsigned hid = hashes.push(hash);
         memset(&hashBuf[hid*mConfig.N], 0, sizeof(uint32_t)*mConfig.N);
@@ -1390,6 +1417,7 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
 
     unsigned iteration = 0;
     mpz_class primorial[maxHashPrimorial];
+    uint64_t primorialU64[maxHashPrimorial] = {0};
     block_t blockheader;
     search_t hashmod;
     sha256precalcData precalcData;
@@ -1424,10 +1452,15 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
         CUDA_SAFE_CALL(primeBuf2[i].init(mConfig.PCOUNT*2, true));
         CUDA_SAFE_CALL(primeBuf2[i].copyToDevice(&gPrimes2[2*(mPrimorial+i)+2]));
         mpz_class p = 1;
+        uint64_t p64 = 1;
         for(unsigned j = 0; j <= mPrimorial+i; j++)
-            p *= gPrimes[j];    
+        {
+            p *= gPrimes[j];
+            p64 *= gPrimes[j];
+        }
         primorial[i] = p;
-    }  
+        primorialU64[i] = p64;
+    }
 
     {
         unsigned primorialbits = mpz_sizeinbase(primorial[0].get_mpz_t(), 2);
@@ -1635,17 +1668,10 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 hash.time = blockheader.time;
                 hash.nonce = hashmod.found[i];
                 uint32_t primorialBitField = hashmod.primorialBitField[i];
-                uint32_t primorialIdx = primorialBitField >> 16;
-                uint64_t realPrimorial = 1;
-                for (unsigned j = 0; j < primorialIdx+1; j++) {
-                    if (primorialBitField & (1 << j))
-                        realPrimorial *= gPrimes[j];
-                }      
-                
-                mpz_class mpzRealPrimorial;        
-                mpz_import(mpzRealPrimorial.get_mpz_t(), 1, -1, sizeof(realPrimorial), 0, 0, &realPrimorial);
-                primorialIdx = std::max(mPrimorial, primorialIdx) - mPrimorial;
-                mpz_class mpzHashMultiplier = primorial[primorialIdx] / mpzRealPrimorial;
+                uint32_t sourcePrimorialIdx = primorialBitField >> 16;
+                uint64_t realPrimorial = realPrimorialFromBitField(primorialBitField, sourcePrimorialIdx);
+                uint32_t primorialIdx = std::max(mPrimorial, sourcePrimorialIdx) - mPrimorial;
+                uint64_t hashMultiplier = primorialU64[primorialIdx] / realPrimorial;
                         
                 block_t b = blockheader;
                 b.nonce = hash.nonce;
@@ -1666,14 +1692,14 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                         
                     mpz_class mpzHash;
                     mpz_set_uint256(mpzHash.get_mpz_t(), hash.hash);
-                if(!mpz_divisible_p(mpzHash.get_mpz_t(), mpzRealPrimorial.get_mpz_t())){
-                    LOG_F(WARNING, "mpz_divisible_p failed.\n");
+                if(modUint256ByUint64(hash.hash, realPrimorial) != 0){
+                    LOG_F(WARNING, "fast divisibility check failed.\n");
                     stats.errors++;
                     continue;
                 }
-                        
+
                 hash.primorialIdx = primorialIdx;
-                hash.primorial = mpzHashMultiplier;
+                hash.primorial = hashMultiplier;
                 hash.shash = mpzHash * hash.primorial;
 
                 unsigned hid = hashes.push(hash);
