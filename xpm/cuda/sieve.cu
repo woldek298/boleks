@@ -243,10 +243,12 @@ __global__ void sieve(uint32_t *gsieve_all,
     gsieve[i] = sieve[i];
 }
 
-__device__ __forceinline__ uint32_t warpAppend(uint32_t *counter, bool predicate)
+__device__ __forceinline__ uint32_t warpAppend(uint32_t *counter,
+                                               bool predicate,
+                                               unsigned warpMask)
 {
   const unsigned lane = threadIdx.x & 31u;
-  const unsigned active = __ballot_sync(0xFFFFFFFFu, predicate);
+  const unsigned active = __ballot_sync(warpMask, predicate);
   if (!active)
     return 0;
 
@@ -254,7 +256,7 @@ __device__ __forceinline__ uint32_t warpAppend(uint32_t *counter, bool predicate
   uint32_t base = 0;
   if (lane == leader)
     base = atomicAdd(counter, __popc(active));
-  base = __shfl_sync(0xFFFFFFFFu, base, leader);
+  base = __shfl_sync(warpMask, base, leader);
 
   const unsigned laneMask = (lane == 0u) ? 0u : ((1u << lane) - 1u);
   return base + __popc(active & laneMask);
@@ -290,8 +292,11 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
     const bool is320 = valid && (maxSize <= 320);
     const bool is352 = valid && !is320;
+    const unsigned warpMask = __activemask();
 
-    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    uint32_t addr320 = 0;
+    if (__any_sync(warpMask, is320))
+      addr320 = warpAppend(&fcount[0], is320, warpMask);
     if (is320) {
       fermat_t info;
       info.index = multiplier;
@@ -302,7 +307,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       found320[addr320] = info;
     }
 
-    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    uint32_t addr352 = 0;
+    if (__any_sync(warpMask, is352))
+      addr352 = warpAppend(&fcount[1], is352, warpMask);
     if (is352) {
       fermat_t info;
       info.index = multiplier;
@@ -332,8 +339,11 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + depth;
     const bool is320 = valid && (maxSize <= 320);
     const bool is352 = valid && !is320;
+    const unsigned warpMask = __activemask();
 
-    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    uint32_t addr320 = 0;
+    if (__any_sync(warpMask, is320))
+      addr320 = warpAppend(&fcount[0], is320, warpMask);
     if (is320) {
       fermat_t info;
       info.index = multiplier;
@@ -344,7 +354,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       found320[addr320] = info;
     }
 
-    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    uint32_t addr352 = 0;
+    if (__any_sync(warpMask, is352))
+      addr352 = warpAppend(&fcount[1], is352, warpMask);
     if (is352) {
       fermat_t info;
       info.index = multiplier;
@@ -376,8 +388,11 @@ __global__ void s_sieve(const uint32_t *gsieve1,
     const unsigned maxSize = hashSize + (32-__clz(multiplier)) + start + (depth/2) + (depth&1);
     const bool is320 = valid && (maxSize <= 320);
     const bool is352 = valid && !is320;
+    const unsigned warpMask = __activemask();
 
-    const uint32_t addr320 = warpAppend(&fcount[0], is320);
+    uint32_t addr320 = 0;
+    if (__any_sync(warpMask, is320))
+      addr320 = warpAppend(&fcount[0], is320, warpMask);
     if (is320) {
       fermat_t info;
       info.index = multiplier;
@@ -388,7 +403,9 @@ __global__ void s_sieve(const uint32_t *gsieve1,
       found320[addr320] = info;
     }
 
-    const uint32_t addr352 = warpAppend(&fcount[1], is352);
+    uint32_t addr352 = 0;
+    if (__any_sync(warpMask, is352))
+      addr352 = warpAppend(&fcount[1], is352, warpMask);
     if (is352) {
       fermat_t info;
       info.index = multiplier;
