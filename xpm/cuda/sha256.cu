@@ -399,11 +399,11 @@ __device__ void sha256UsePrecalc(const uint32_t *msg,
 }
 
 #define select(a, b, c) ((c) ? (b) : (a))
-extern "C" __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
+
+__global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
                                    uint32_t *found,
                                    uint32_t *fcount,
                                    uint32_t *resultPrimorial,
-                                   uint32_t outputCapacity,
                                    uint32_t *midstate,
                                    uint32_t merkle,
                                    uint32_t time,
@@ -504,26 +504,20 @@ extern "C" __global__ void bhashmodUsePrecalc(uint32_t nonceOffset,
     
     if (p13isValid) {
       const uint32_t index = atomicAdd(fcount, 1);
-      if (index < outputCapacity) {
-        resultPrimorial[index] = (primorialBitField & 0xFFFF) | (13u << 16);
-        found[index] = id;
-      }
+      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (13u << 16);
+      found[index] = id;
     }
     
     if (p14isValid) {
       const uint32_t index = atomicAdd(fcount, 1);
-      if (index < outputCapacity) {
-        resultPrimorial[index] = (primorialBitField & 0xFFFF) | (14u << 16);
-        found[index] = id;
-      }
+      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (14u << 16);
+      found[index] = id;
     }
     
     if (p15isValid) {
       const uint32_t index = atomicAdd(fcount, 1);
-      if (index < outputCapacity) {
-        resultPrimorial[index] = (primorialBitField & 0xFFFF) | (15u << 16);
-        found[index] = id;
-      }
+      resultPrimorial[index] = (primorialBitField & 0xFFFF) | (15u << 16);
+      found[index] = id;
     }    
   }
 }
