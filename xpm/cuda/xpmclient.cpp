@@ -966,6 +966,9 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 
   _cfg = cfg;
 
+  gCudaUsePinnedHostMemory = cfg->lookupBoolean("", "pinnedHostMemory", true);
+  LOG_F(INFO, "CUDA pinned host memory: %s", gCudaUsePinnedHostMemory ? "enabled" : "disabled");
+
   unsigned clKernelPCount = cfg->lookupInt("", "weaveDepth", 40960);
   unsigned maxPrimesNum = clKernelPCount + 256;
   {

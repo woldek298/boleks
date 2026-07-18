@@ -55,6 +55,10 @@ windowSize = "12288";
 # Less values increases prime probability, but sieve generate less candidates
 multiplierLimits = ["24", "31", "35"];
 
+# Use CUDA pinned/page-locked host memory for host/device staging buffers.
+# Set to "false" to test NVIDIA 575 pinned-memory regressions/workarounds.
+pinnedHostMemory = "true";
+
 # - The following settings have one entry per GPU
 # - If you have more than 4 just add more entries or leave it as is to use defaults
 # - All entries must be separated by commas and set between double quotes
