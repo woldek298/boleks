@@ -60,6 +60,10 @@ multiplierLimits = ["24", "31", "35"];
 # Set to "false" to force the legacy PTX (compute_XY) path.
 nativeCubin = "true";
 
+# Experimental V100/NVIDIA 575 workaround: use non-atomic shared-memory sieve writes.
+# This can reduce the driver-575 sieve bottleneck at the cost of more Fermat false positives.
+relaxedSieve = "false";
+
 # - The following settings have one entry per GPU
 # - If you have more than 4 just add more entries or leave it as is to use defaults
 # - All entries must be separated by commas and set between double quotes

@@ -1038,6 +1038,7 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 	
   unsigned clKernelStripes = cfg->lookupInt("", "sieveSize", 420);
   unsigned clKernelWindowSize = cfg->lookupInt("", "windowSize", 4096);
+  bool relaxedSieve = cfg->lookupBoolean("", "relaxedSieve", false);
 
 	unsigned multiplierSizeLimits[3] = {26, 33, 36};
 	std::vector<bool> usegpu(mNumDevices, true);
@@ -1128,6 +1129,8 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
     config << "#define LIMIT13 " << multiplierSizeLimits[0] << '\n';
     config << "#define LIMIT14 " << multiplierSizeLimits[1] << '\n';
     config << "#define LIMIT15 " << multiplierSizeLimits[2] << '\n';    
+    if (relaxedSieve)
+      config << "#define RELAXED_SIEVE_WRITES 1\n";
     dumpSieveConstants(clKernelPCount, clKernelLSize, clKernelWindowSize*32, &gPrimes[13], config);
   }
   
@@ -1139,7 +1142,7 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
   for (unsigned i = 0; i < gpus.size(); i++) {
 		char kernelname[64];
 		char ccoption[64];
-		sprintf(kernelname, "kernelxpm_gpu%u_%s%i%i.bin", gpus[i].index, useNativeCubin ? "sm" : "compute", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
+		sprintf(kernelname, "kernelxpm_gpu%u_%s%i%i%s.bin", gpus[i].index, useNativeCubin ? "sm" : "compute", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability, relaxedSieve ? "_relaxed_sieve" : "");
     sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
     const char *options[] = { ccoption, arguments.c_str() };
     const int optionsCount = arguments.empty() ? 1 : 2;

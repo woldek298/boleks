@@ -1,6 +1,15 @@
 #define S1RUNS (sizeof(nps_all)/sizeof(uint32_t))
 #define NLIFO 4
 
+__device__ inline void sieveOr(uint32_t *address, uint32_t mask)
+{
+#ifdef RELAXED_SIEVE_WRITES
+  *address |= mask;
+#else
+  atomicOr(address, mask);
+#endif
+}
+
 // for 1024 threads in group
 #if (LSIZELOG2 == 10)
 __constant__ uint32_t nps_all[] = { 4, 4, 5, 6, 7, 7, 7, 9 }; // 1024 threads per block (default)
@@ -74,10 +83,10 @@ __global__ void sieve(uint32_t *gsieve_all,
       uint32_t bit4 = orb << (vpos.w % 32);
       const uint32_t add = var*4*prime >> 5;
       while (s4 < se) {
-        atomicOr(s1, bit1);
-        atomicOr(s2, bit2);
-        atomicOr(s3, bit3);
-        atomicOr(s4, bit4);
+        sieveOr(s1, bit1);
+        sieveOr(s2, bit2);
+        sieveOr(s3, bit3);
+        sieveOr(s4, bit4);
         s1 += add;
         s2 += add;
         s3 += add;
@@ -85,20 +94,20 @@ __global__ void sieve(uint32_t *gsieve_all,
       }
 
       if (s1 < se)
-        atomicOr(s1, bit1);
+        sieveOr(s1, bit1);
       if (s2 < se)
-        atomicOr(s2, bit2);
+        sieveOr(s2, bit2);
       if (s3 < se)
-        atomicOr(s3, bit3);
+        sieveOr(s3, bit3);
     } else {
 
 
     const uint32_t add = var*4*prime;
     while (vpos.w < SIZE*32) {
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
-      atomicOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
+      sieveOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
+      sieveOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
+      sieveOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+      sieveOr(&sieve[vpos.w >> 5], orb << (vpos.w%32));
       vpos.x += add;
       vpos.y += add;
       vpos.z += add;
@@ -106,11 +115,11 @@ __global__ void sieve(uint32_t *gsieve_all,
     }
 
     if (vpos.x < SIZE*32)
-      atomicOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
+      sieveOr(&sieve[vpos.x >> 5], orb << (vpos.x%32));
     if (vpos.y < SIZE*32)
-      atomicOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
+      sieveOr(&sieve[vpos.y >> 5], orb << (vpos.y%32));
     if (vpos.z < SIZE*32)
-      atomicOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
+      sieveOr(&sieve[vpos.z >> 5], orb << (vpos.z%32));
     }
   }
   
@@ -155,40 +164,40 @@ __global__ void sieve(uint32_t *gsieve_all,
       const uint32_t add = 2*prime;
 
       while (vpos.y < SIZE*32) {
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x%32));
-        atomicOr(&sieve[vpos.y >> 5], 1u << (vpos.y%32));
+        sieveOr(&sieve[vpos.x >> 5], 1u << (vpos.x%32));
+        sieveOr(&sieve[vpos.y >> 5], 1u << (vpos.y%32));
         vpos.x += add;
         vpos.y += add;
       }
         
       if (vpos.x < SIZE*32)
-        atomicOr(&sieve[vpos.x >> 5], 1u << (vpos.x % 32));
+        sieveOr(&sieve[vpos.x >> 5], 1u << (vpos.x % 32));
     } else if (ip < SIEVERANGE2) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        sieveOr(&sieve[index], 1u << (pos%32));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          sieveOr(&sieve[index], 1u << (pos%32));
           pos += prime;
           index = pos >> 5;
           if(index < SIZE){
-            atomicOr(&sieve[index], 1u << (pos%32));
+            sieveOr(&sieve[index], 1u << (pos%32));
           }
         }
       }
     } else if(ip < SIEVERANGE3) {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        sieveOr(&sieve[index], 1u << (pos%32));
         pos += prime;
         index = pos >> 5;
         if(index < SIZE){
-          atomicOr(&sieve[index], 1u << (pos%32));
+          sieveOr(&sieve[index], 1u << (pos%32));
         }
       }
     } else {
       if(index < SIZE){
-        atomicOr(&sieve[index], 1u << (pos%32));
+        sieveOr(&sieve[index], 1u << (pos%32));
       }
     }
     
@@ -221,7 +230,7 @@ __global__ void sieve(uint32_t *gsieve_all,
 
     uint32_t index = pos >> 5;
     if(index < SIZE)
-      atomicOr(&sieve[index], 1u << (pos%32));
+      sieveOr(&sieve[index], 1u << (pos%32));
 
     if(ip+NLIFO < SCOUNT/LSIZE){
       pprimes += LSIZE;
