@@ -145,6 +145,7 @@ bool cudaCompileKernel(const char *kernelName,
                        CUmodule *module,
                        int majorComputeCapability,
                        int minorComputeCapability,
-                       bool needRebuild);
+                       bool needRebuild,
+                       bool preferNativeCubin = false);
 
 #endif //__CUDALIB_H_

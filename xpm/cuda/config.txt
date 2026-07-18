@@ -55,6 +55,11 @@ windowSize = "12288";
 # Less values increases prime probability, but sieve generate less candidates
 multiplierLimits = ["24", "31", "35"];
 
+# Compile kernels to native cubin (sm_XY) when supported by NVRTC.
+# This avoids driver PTX JIT variability that can hurt V100 performance on some NVIDIA drivers.
+# Set to "false" to force the legacy PTX (compute_XY) path.
+nativeCubin = "true";
+
 # - The following settings have one entry per GPU
 # - If you have more than 4 just add more entries or leave it as is to use defaults
 # - All entries must be separated by commas and set between double quotes

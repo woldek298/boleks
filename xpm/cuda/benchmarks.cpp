@@ -4,6 +4,7 @@
 
 #include "loguru.hpp"
 #include <time.h>
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #if defined(__GXX_EXPERIMENTAL_CXX0X__) && (__cplusplus < 201103L)
@@ -39,7 +40,7 @@ static const char *gCUDAKernelNames[] = {
   "_Z20multiplyBenchmark352PjS_S_j",
   "_Z22fermatTestBenchMark320PjS_j",
   "_Z22fermatTestBenchMark352PjS_j",
-  "_Z18bhashmodUsePrecalcjPjS_S_S_jjjjjjjjjjjj",
+  "bhashmodUsePrecalc",
   "_Z11setup_sievePjS_PKjS_jS_",
   "_Z5sievePjS_P5uint2",
   "_Z7s_sievePKjS0_P8fermat_tS2_Pjjjj"
@@ -459,11 +460,13 @@ void cudaHashmodBenchmark(CUfunction *kernels,
     CUDA_SAFE_CALL(hashmod.count.copyToDevice());
     
     int nonceOffset = 0;
+    uint32_t hashmodCapacity = std::min((uint32_t)hashmod.found._size, (uint32_t)hashmod.primorialBitField._size);
     void *arguments[] = {
       &nonceOffset,
       &hashmod.found._deviceData,
       &hashmod.count._deviceData,
       &hashmod.primorialBitField._deviceData,
+      &hashmodCapacity,
       &hashmod.midstate._deviceData,
       &precalcData.merkle,
       &precalcData.time,
@@ -648,11 +651,13 @@ void cudaSieveTestBenchmark(CUfunction *kernels,
     CUDA_SAFE_CALL(hashmod.count.copyToDevice());
 
     int nonceOffset = 0;
+    uint32_t hashmodCapacity = std::min((uint32_t)hashmod.found._size, (uint32_t)hashmod.primorialBitField._size);
     void *arguments[] = {
       &nonceOffset,
       &hashmod.found._deviceData,
       &hashmod.count._deviceData,
       &hashmod.primorialBitField._deviceData,
+      &hashmodCapacity,
       &hashmod.midstate._deviceData,
       &precalcData.merkle,
       &precalcData.time,

@@ -129,7 +129,7 @@ bool PrimeMiner::Initialize(CUcontext context, CUdevice device, CUmodule module)
   cuCtxSetCurrent(context);
   
   // Lookup kernels by mangled name
-  CUDA_SAFE_CALL(cuModuleGetFunction(&mHashMod, module, "_Z18bhashmodUsePrecalcjPjS_S_S_jjjjjjjjjjjj"));
+  CUDA_SAFE_CALL(cuModuleGetFunction(&mHashMod, module, "bhashmodUsePrecalc"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mSieveSetup, module, "_Z11setup_sievePjS_PKjS_jS_"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mSieve, module, "_Z5sievePjS_P5uint2"));
   CUDA_SAFE_CALL(cuModuleGetFunction(&mSieveSearch, module, "_Z7s_sievePKjS0_P8fermat_tS2_Pjjjj"));
@@ -680,11 +680,13 @@ void PrimeMiner::Mining(void *ctx, void *pipe) {
         CUDA_SAFE_CALL(hashmod.midstate.copyToDevice(mHMFermatStream));
         CUDA_SAFE_CALL(hashmod.count.memsetDevice(0, 1, mHMFermatStream));
 
+        uint32_t hashmodCapacity = std::min((uint32_t)hashmod.found._size, (uint32_t)hashmod.primorialBitField._size);
         void *arguments[] = {
           &blockheader.nonce,
           &hashmod.found._deviceData,
           &hashmod.count._deviceData,
           &hashmod.primorialBitField._deviceData,
+          &hashmodCapacity,
           &hashmod.midstate._deviceData,
           &precalcData.merkle,
           &precalcData.time,
@@ -1130,13 +1132,14 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
   }
   
   std::string arguments = cfg->lookupString("", "compilerFlags", "");
+  bool useNativeCubin = cfg->lookupBoolean("", "nativeCubin", true);
 
   std::vector<CUmodule> modules;
 	modules.resize(gpus.size());
   for (unsigned i = 0; i < gpus.size(); i++) {
 		char kernelname[64];
 		char ccoption[64];
-		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
+		sprintf(kernelname, "kernelxpm_gpu%u_%s%i%i.bin", gpus[i].index, useNativeCubin ? "sm" : "compute", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
     sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
     const char *options[] = { ccoption, arguments.c_str() };
     const int optionsCount = arguments.empty() ? 1 : 2;
@@ -1148,7 +1151,8 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
-				adjustedKernelTarget != 0)) {
+				adjustedKernelTarget != 0,
+        useNativeCubin)) {
 			return false;
 		}
   }
@@ -1189,8 +1193,8 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 					config.LIMIT13 != multiplierSizeLimits[0] ||
 					config.LIMIT14 != multiplierSizeLimits[1] ||
 					config.LIMIT15 != multiplierSizeLimits[2]) {
-        LOG_F(ERROR, "Existing CUDA kernel (kernelxpm_gpu<N>.ptx) incompatible with configuration");
-        LOG_F(ERROR, "Please remove kernelxpm_gpu<N>.ptx file and restart miner");
+        LOG_F(ERROR, "Existing CUDA kernel (kernelxpm_gpu<N>_*.bin) incompatible with configuration");
+        LOG_F(ERROR, "Please remove kernelxpm_gpu<N>_*.bin file and restart miner");
         exit(1);
       }
 
@@ -1792,11 +1796,13 @@ void PrimeMiner::SoloMining(GetBlockTemplateContext* gbp, SubmitContext* submit)
                 CUDA_SAFE_CALL(hashmod.midstate.copyToDevice(mHMFermatStream));
                 CUDA_SAFE_CALL(hashmod.count.memsetDevice(0, 1, mHMFermatStream));
 
+                uint32_t hashmodCapacity = std::min((uint32_t)hashmod.found._size, (uint32_t)hashmod.primorialBitField._size);
                 void *arguments[] = {
                     &blockheader.nonce,
                     &hashmod.found._deviceData,
                     &hashmod.count._deviceData,
                     &hashmod.primorialBitField._deviceData,
+                    &hashmodCapacity,
                     &hashmod.midstate._deviceData,
                     &precalcData.merkle,
                     &precalcData.time,
