@@ -4,8 +4,6 @@
 #include <iostream>
 #include <memory>
 
-bool gCudaUsePinnedHostMemory = true;
-
 bool cudaCompileKernel(const char *kernelName,
                        const std::vector<const char*> &sources,
                        const char **arguments,

@@ -7,8 +7,6 @@
 #include <string>
 #include <vector>
 
-extern bool gCudaUsePinnedHostMemory;
-
 #define NVRTC_SAFE_CALL(x) \
 do { \
   nvrtcResult result = x; \
@@ -67,14 +65,9 @@ public:
   CUresult init(size_t size, bool hostNoAccess) {
     _size = size;
     if (!hostNoAccess) {
-      if (gCudaUsePinnedHostMemory) {
-        CUresult result = cuMemAllocHost((void**)&_hostData, sizeof(T)*size);
-        if (result == CUDA_SUCCESS) {
-          _hostPinned = true;
-        } else {
-          _hostData = new T[size];
-          _hostPinned = false;
-        }
+      CUresult result = cuMemAllocHost((void**)&_hostData, sizeof(T)*size);
+      if (result == CUDA_SUCCESS) {
+        _hostPinned = true;
       } else {
         _hostData = new T[size];
         _hostPinned = false;
@@ -92,14 +85,10 @@ public:
   }
 
   CUresult copyToDevice(size_t count, CUstream stream) {
-    if (!_hostPinned)
-      return cuMemcpyHtoD(_deviceData, _hostData, sizeof(T)*count);
     return cuMemcpyHtoDAsync(_deviceData, _hostData, sizeof(T)*count, stream);
   }
 
   CUresult copyToDevice(CUstream stream) {
-    if (!_hostPinned)
-      return cuMemcpyHtoD(_deviceData, _hostData, sizeof(T)*_size);
     return cuMemcpyHtoDAsync(_deviceData, _hostData, sizeof(T)*_size, stream);
   }  
   
@@ -108,8 +97,6 @@ public:
   }
   
   CUresult copyToDevice(T *hostData, CUstream stream) {
-    if (!_hostPinned)
-      return cuMemcpyHtoD(_deviceData, hostData, sizeof(T)*_size);
     return cuMemcpyHtoDAsync(_deviceData, hostData, sizeof(T)*_size, stream);
   }  
   
@@ -122,8 +109,6 @@ public:
   }
 
   CUresult copyToHost(size_t count, CUstream stream) {
-    if (!_hostPinned)
-      return cuMemcpyDtoH(_hostData, _deviceData, sizeof(T)*count);
     return cuMemcpyDtoHAsync(_hostData, _deviceData, sizeof(T)*count, stream);
   }
 
@@ -140,8 +125,6 @@ public:
   }
 
   CUresult copyToHost(CUstream stream) {
-    if (!_hostPinned)
-      return cuMemcpyDtoH(_hostData, _deviceData, sizeof(T)*_size);
     return cuMemcpyDtoHAsync(_hostData, _deviceData, sizeof(T)*_size, stream);
   }  
   
