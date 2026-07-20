@@ -88,3 +88,23 @@ Cons:
    fatbin path for fixed V100 kernel configurations.
 4. If native cubin does not improve NVIDIA 575 performance, the remaining regression is
    in the closed driver runtime path and cannot be fixed purely by compilation.
+
+## Implemented `offlineSm70Cubin` path
+
+The CUDA client now has an optional V100-only offline cubin path controlled from
+`xpm/cuda/config.txt`:
+
+```txt
+offlineSm70Cubin = "true";
+nvccPath = "nvcc";
+offlineCompilerFlags = "";
+```
+
+When enabled on a compute capability 7.0 GPU, the miner concatenates the generated
+CUDA kernel sources after `config.cu` is written and invokes `nvcc -cubin
+-arch=sm_70 -O3`. The resulting `kernelxpm_gpu<N>_sm70.cubin` is loaded directly
+with `cuModuleLoadDataEx()`.
+
+This removes the PTX-to-SASS JIT compiler from the driver-dependent startup path
+for V100. It does not remove dependence on the installed NVIDIA driver for module
+loading, scheduling, memory management, synchronization, or clock/power behavior.

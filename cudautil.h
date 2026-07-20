@@ -145,6 +145,9 @@ bool cudaCompileKernel(const char *kernelName,
                        CUmodule *module,
                        int majorComputeCapability,
                        int minorComputeCapability,
-                       bool needRebuild);
+                       bool needRebuild,
+                       bool offlineSm70Cubin = false,
+                       const char *nvccPath = "nvcc",
+                       const char *offlineCompilerFlags = "");
 
 #endif //__CUDALIB_H_

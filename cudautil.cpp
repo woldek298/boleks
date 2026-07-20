@@ -3,6 +3,58 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <stdlib.h>
+
+static std::string shellQuote(const std::string &value)
+{
+  std::string result = "'";
+  for (char c : value) {
+    if (c == '\'')
+      result += "'\\''";
+    else
+      result += c;
+  }
+  result += "'";
+  return result;
+}
+
+static bool buildOfflineCubin(const char *kernelName,
+                              const std::vector<const char*> &sources,
+                              const char *nvccPath,
+                              const char *offlineCompilerFlags)
+{
+  const std::string offlineSource = std::string(kernelName) + ".offline.cu";
+  {
+    std::ofstream out(offlineSource, std::ofstream::binary | std::ofstream::trunc);
+    if (!out) {
+      LOG_F(ERROR, "Cannot open %s for writing", offlineSource.c_str());
+      return false;
+    }
+
+    for (auto &source : sources) {
+      std::ifstream stream(source);
+      if (!stream) {
+        LOG_F(ERROR, "Cannot open CUDA source %s", source);
+        return false;
+      }
+      out << stream.rdbuf() << '\n';
+    }
+  }
+
+  std::string command = shellQuote(nvccPath) +
+                        " -cubin -arch=sm_70 -O3 " +
+                        offlineCompilerFlags +
+                        " -o " + shellQuote(kernelName) +
+                        " " + shellQuote(offlineSource);
+  LOG_F(INFO, "offline sm_70 cubin compile: %s", command.c_str());
+  int result = system(command.c_str());
+  if (result != 0) {
+    LOG_F(ERROR, "offline sm_70 cubin compile failed with exit code %i", result);
+    return false;
+  }
+
+  return true;
+}
 
 bool cudaCompileKernel(const char *kernelName,
                        const std::vector<const char*> &sources,
@@ -10,13 +62,20 @@ bool cudaCompileKernel(const char *kernelName,
                        int argumentsNum,
                        CUmodule *module,
                        int majorComputeCapability,
-                       int,
-                       bool needRebuild)
+                       int minorComputeCapability,
+                       bool needRebuild,
+                       bool offlineSm70Cubin,
+                       const char *nvccPath,
+                       const char *offlineCompilerFlags)
 {
   std::ifstream testfile(kernelName);
   if(needRebuild || !testfile) {
     LOG_F(INFO, "compiling ...");
 
+    if (offlineSm70Cubin && majorComputeCapability == 7 && minorComputeCapability == 0) {
+      if (!buildOfflineCubin(kernelName, sources, nvccPath, offlineCompilerFlags))
+        return false;
+    } else {
     std::string sourceFile;
     for (auto &i: sources) {
       std::ifstream stream(i);
@@ -69,6 +128,7 @@ bool cudaCompileKernel(const char *kernelName,
     }
 
     delete[] ptx;
+    }
   }
 
   std::ifstream bfile(kernelName, std::ifstream::binary);
