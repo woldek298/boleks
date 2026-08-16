@@ -19,6 +19,10 @@ port = "6666";
 # Your XPM payout address
 address = "AMgtSW8ge2mvqxaiWo11GqTKx6rQ2J57yA";
 
+# File logging is disabled by default to avoid filling the disk with daily miner-YYYY-MM-DD.log files.
+# Set to "true" only when you need persistent logs for troubleshooting.
+logToFile = "false";
+
 # You can give this machine a custom name
 # Computer name is used as default
 #name = "custom_name";
