@@ -393,18 +393,11 @@ static int TimeoutCheckProc() {
 
 int main(int argc, char **argv)
 {
-  char logFileName[64];
-  {
-    auto t = std::time(nullptr);
-    auto now = std::localtime(&t);
-    snprintf(logFileName, sizeof(logFileName), "miner-%04u-%02u-%02u.log", now->tm_year + 1900, now->tm_mon + 1, now->tm_mday);
-  }
   loguru::g_stderr_verbosity = loguru::Verbosity_OFF;
   loguru::g_preamble_thread = false;
   loguru::g_preamble_file = false;
   loguru::g_flush_interval_ms = 100;
   loguru::init(argc, argv);
-  loguru::add_file(logFileName, loguru::Append, loguru::Verbosity_INFO);
   loguru::g_stderr_verbosity = 1;
 
   gBlock.set_height(0);
@@ -428,6 +421,16 @@ int main(int argc, char **argv)
     LOG_F(ERROR, "%s\n", ex.c_str());
 		exit(EXIT_FAILURE);
 	}
+
+  bool logToFile = cfg->lookupBoolean("", "logToFile", false);
+  if (logToFile) {
+    char logFileName[64];
+    auto t = std::time(nullptr);
+    auto now = std::localtime(&t);
+    snprintf(logFileName, sizeof(logFileName), "miner-%04u-%02u-%02u.log", now->tm_year + 1900, now->tm_mon + 1, now->tm_mday);
+    loguru::add_file(logFileName, loguru::Append, loguru::Verbosity_INFO);
+    LOG_F(INFO, "File logging enabled: %s", logFileName);
+  }
 	
 	if(!gClientName.size())
     gClientName = sysinfo::GetClientName();
