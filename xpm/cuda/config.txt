@@ -59,6 +59,12 @@ windowSize = "12288";
 # Less values increases prime probability, but sieve generate less candidates
 multiplierLimits = ["24", "31", "35"];
 
+# Compile V100 kernels with offline nvcc to native sm_70 cubin instead of runtime PTX JIT.
+# This reduces NVIDIA driver PTX-JIT variability, but still requires a compatible host driver.
+offlineSm70Cubin = "false";
+nvccPath = "nvcc";
+offlineCompilerFlags = "";
+
 # - The following settings have one entry per GPU
 # - If you have more than 4 just add more entries or leave it as is to use defaults
 # - All entries must be separated by commas and set between double quotes

@@ -1125,13 +1125,19 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
   }
   
   std::string arguments = cfg->lookupString("", "compilerFlags", "");
+  bool offlineSm70Cubin = cfg->lookupBoolean("", "offlineSm70Cubin", false);
+  std::string nvccPath = cfg->lookupString("", "nvccPath", "nvcc");
+  std::string offlineCompilerFlags = cfg->lookupString("", "offlineCompilerFlags", "");
 
   std::vector<CUmodule> modules;
 	modules.resize(gpus.size());
   for (unsigned i = 0; i < gpus.size(); i++) {
 		char kernelname[64];
 		char ccoption[64];
-		sprintf(kernelname, "kernelxpm_gpu%u.ptx", gpus[i].index);
+		sprintf(kernelname, offlineSm70Cubin && gpus[i].majorComputeCapability == 7 && gpus[i].minorComputeCapability == 0
+                    ? "kernelxpm_gpu%u_sm70.cubin"
+                    : "kernelxpm_gpu%u.ptx",
+                    gpus[i].index);
     sprintf(ccoption, "--gpu-architecture=compute_%i%i", gpus[i].majorComputeCapability, gpus[i].minorComputeCapability);
     const char *options[] = { ccoption, arguments.c_str() };
     const int optionsCount = arguments.empty() ? 1 : 2;
@@ -1143,7 +1149,10 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 				&modules[i],
         gpus[i].majorComputeCapability,
         gpus[i].minorComputeCapability,
-				adjustedKernelTarget != 0)) {
+				adjustedKernelTarget != 0,
+        offlineSm70Cubin,
+        nvccPath.c_str(),
+        offlineCompilerFlags.c_str())) {
 			return false;
 		}
   }
@@ -1184,8 +1193,8 @@ bool XPMClient::Initialize(Configuration* cfg, bool benchmarkOnly, unsigned adju
 					config.LIMIT13 != multiplierSizeLimits[0] ||
 					config.LIMIT14 != multiplierSizeLimits[1] ||
 					config.LIMIT15 != multiplierSizeLimits[2]) {
-        LOG_F(ERROR, "Existing CUDA kernel (kernelxpm_gpu<N>.ptx) incompatible with configuration");
-        LOG_F(ERROR, "Please remove kernelxpm_gpu<N>.ptx file and restart miner");
+        LOG_F(ERROR, "Existing CUDA kernel (kernelxpm_gpu<N>.ptx/.cubin) incompatible with configuration");
+        LOG_F(ERROR, "Please remove kernelxpm_gpu<N>.ptx/.cubin file and restart miner");
         exit(1);
       }
 
